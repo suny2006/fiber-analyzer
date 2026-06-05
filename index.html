@@ -1,0 +1,835 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="FiberAnalyzer">
+  <meta name="theme-color" content="#050810">
+  <link rel="manifest" href="./manifest.json">
+  <link rel="apple-touch-icon" href="./icon.svg">
+  <title>Fiber Optic Analyzer</title>
+
+  <style>
+    /* ─── 1. CSS 변수 ─── */
+    :root {
+      --bg:      #050810;
+      --bg2:     #0a0f1e;
+      --panel:   rgba(10,15,30,0.92);
+      --border:  rgba(0,210,255,0.13);
+      --accent:  #00d2ff;
+      --accent2: #7b2fff;
+      --accent3: #ff3e6c;
+      --text:    #c8d8f0;
+      --dim:     rgba(100,130,180,0.55);
+      --r:       #ff4466;
+      --g:       #44ff88;
+      --b:       #4488ff;
+      --mono:    'Courier New', monospace;
+      --safe-top: env(safe-area-inset-top, 0px);
+      --safe-bot: env(safe-area-inset-bottom, 0px);
+    }
+
+    /* ─── 2. 리셋 ─── */
+    *, *::before, *::after { margin:0; padding:0; box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
+
+    html, body {
+      width:100%; height:100%;
+      background: var(--bg);
+      color: var(--text);
+      font-family: var(--mono);
+      overflow-x: hidden;
+      overscroll-behavior: none;
+    }
+
+    /* ─── 3. 전체 레이아웃 ─── */
+    #app {
+      max-width: 480px;
+      margin: 0 auto;
+      padding: calc(var(--safe-top) + 12px) 12px calc(var(--safe-bot) + 16px);
+      min-height: 100vh;
+    }
+
+    /* ─── 4. 헤더 ─── */
+    header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding-bottom: 12px;
+      border-bottom: 1px solid var(--border);
+      margin-bottom: 12px;
+    }
+    .logo-title {
+      font-size: 15px;
+      font-weight: bold;
+      letter-spacing: 0.25em;
+      color: var(--accent);
+      text-shadow: 0 0 18px rgba(0,210,255,0.45);
+    }
+    .logo-sub {
+      font-size: 9px;
+      letter-spacing: 0.15em;
+      color: var(--dim);
+      margin-top: 2px;
+    }
+    .status-pill {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 10px;
+      letter-spacing: 0.1em;
+    }
+    #status-dot {
+      width: 7px; height: 7px;
+      border-radius: 50%;
+      background: #223;
+      transition: all 0.3s;
+    }
+    #status-dot.live {
+      background: var(--g);
+      box-shadow: 0 0 8px var(--g);
+      animation: blink 2s infinite;
+    }
+    @keyframes blink { 0%,100%{opacity:1} 50%{opacity:0.4} }
+
+    /* ─── 5. 카드 공통 ─── */
+    .card {
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      overflow: hidden;
+      margin-bottom: 10px;
+    }
+    .card-header {
+      padding: 8px 12px;
+      border-bottom: 1px solid var(--border);
+      font-size: 9px;
+      letter-spacing: 0.2em;
+      color: rgba(0,210,255,0.6);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    .badge {
+      font-size: 9px;
+      padding: 2px 7px;
+      border-radius: 2px;
+      background: rgba(0,210,255,0.07);
+      border: 1px solid rgba(0,210,255,0.22);
+      color: var(--accent);
+      letter-spacing: 0.1em;
+    }
+
+    /* ─── 6. 카메라 영역 ─── */
+    .cam-wrap {
+      position: relative;
+      background: #000;
+      aspect-ratio: 4/3;
+      overflow: hidden;
+      touch-action: none;
+    }
+    #video {
+      width: 100%; height: 100%;
+      object-fit: cover;
+      display: none;
+    }
+    #overlay {
+      position: absolute;
+      inset: 0;
+      width: 100%; height: 100%;
+      pointer-events: none;
+    }
+    #analysis-canvas { display: none; }
+    .cam-placeholder {
+      position: absolute;
+      inset: 0;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 10px;
+      color: var(--dim);
+    }
+    .cam-placeholder-icon { font-size: 40px; opacity: 0.18; }
+    .cam-placeholder-text { font-size: 11px; letter-spacing: 0.15em; }
+    .cam-hint {
+      position: absolute;
+      bottom: 8px;
+      left: 50%;
+      transform: translateX(-50%);
+      font-size: 10px;
+      color: rgba(0,210,255,0.65);
+      background: rgba(0,0,0,0.55);
+      padding: 3px 10px;
+      border-radius: 2px;
+      letter-spacing: 0.1em;
+      white-space: nowrap;
+      display: none;
+    }
+
+    /* ─── 7. 버튼 ─── */
+    .btn-row {
+      display: flex;
+      gap: 6px;
+      padding: 8px 10px;
+    }
+    .btn {
+      flex: 1;
+      padding: 10px 4px;
+      border: 1px solid rgba(0,210,255,0.2);
+      background: transparent;
+      color: rgba(170,190,220,0.65);
+      font-family: var(--mono);
+      font-size: 10px;
+      letter-spacing: 0.1em;
+      cursor: pointer;
+      border-radius: 3px;
+      transition: all 0.18s;
+      -webkit-appearance: none;
+    }
+    .btn:active  { transform: scale(0.96); }
+    .btn.on      { border-color: var(--accent); color: var(--accent); background: rgba(0,210,255,0.08); }
+    .btn.danger  { border-color: rgba(255,62,108,0.35); color: var(--accent3); }
+    .btn:disabled{ opacity: 0.28; pointer-events: none; }
+
+    /* ─── 8. 색상 프리뷰 ─── */
+    .swatch-row { display:flex; height:56px; }
+    #sw-main  { flex:2; background:#111; transition:background 0.08s; }
+    .sw-ch    { flex:1; display:flex; flex-direction:column; }
+    #sw-r     { flex:1; background:#200; transition:background 0.08s; }
+    #sw-g     { flex:1; background:#020; transition:background 0.08s; }
+    #sw-b     { flex:1; background:#002; transition:background 0.08s; }
+    .hex-row  {
+      padding: 6px 12px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      border-top: 1px solid var(--border);
+    }
+    .hex-label { font-size:10px; color:var(--dim); letter-spacing:0.1em; }
+    #hex-val   {
+      font-size: 16px; font-weight: bold;
+      color: var(--accent); letter-spacing: 0.2em;
+      text-shadow: 0 0 14px rgba(0,210,255,0.38);
+    }
+
+    /* ─── 9. 메트릭 바 ─── */
+    .metric-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 8px 12px;
+      border-bottom: 1px solid rgba(0,210,255,0.06);
+    }
+    .metric-row:last-child { border-bottom: none; }
+    .m-label {
+      width: 16px; font-size: 11px; font-weight: bold;
+      letter-spacing: 0.05em; flex-shrink: 0;
+    }
+    .m-bar-bg {
+      flex: 1; height: 5px;
+      background: rgba(255,255,255,0.05);
+      border-radius: 3px; overflow: hidden;
+    }
+    .m-bar {
+      height: 100%; border-radius: 3px;
+      width: 0%;
+      transition: width 0.07s ease-out;
+    }
+    .m-val {
+      width: 44px; text-align: right;
+      font-size: 13px; font-weight: bold;
+      flex-shrink: 0;
+    }
+    .sep { height:1px; background:rgba(0,210,255,0.07); margin:3px 0; }
+
+    /* ─── 10. 그래프 ─── */
+    #graph-canvas {
+      display: block;
+      width: 100%; height: 110px;
+      background: rgba(4,7,14,0.9);
+    }
+
+    /* ─── 11. 통계 ─── */
+    .stats-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr 1fr;
+      padding: 10px 12px;
+      gap: 6px;
+    }
+    .stat-item { text-align: center; }
+    .stat-lbl  { font-size:9px; letter-spacing:0.1em; color:var(--dim); margin-bottom:3px; }
+    .stat-val  { font-size:13px; font-weight:bold; color:var(--text); }
+
+    /* ─── 12. 오류 배너 ─── */
+    #err-banner {
+      display: none;
+      background: rgba(255,62,108,0.08);
+      border: 1px solid rgba(255,62,108,0.3);
+      border-radius: 4px;
+      padding: 10px 12px;
+      font-size: 11px;
+      color: #ff8899;
+      margin-bottom: 10px;
+      line-height: 1.5;
+    }
+
+    /* ─── 13. 로그 ─── */
+    #log-box {
+      padding: 6px 12px;
+      font-size: 10px;
+      color: var(--dim);
+      line-height: 1.7;
+      max-height: 64px;
+      overflow-y: auto;
+    }
+    #log-box::-webkit-scrollbar { width: 3px; }
+    #log-box::-webkit-scrollbar-thumb { background: var(--border); }
+  </style>
+</head>
+<body>
+<div id="app">
+
+  <!-- 헤더 -->
+  <header>
+    <div>
+      <div class="logo-title">FIBER ANALYZER</div>
+      <div class="logo-sub">RGB / HSV REAL-TIME ANALYSIS</div>
+    </div>
+    <div class="status-pill">
+      <div id="status-dot"></div>
+      <span id="status-txt">STANDBY</span>
+    </div>
+  </header>
+
+  <!-- 오류 배너 -->
+  <div id="err-banner"></div>
+
+  <!-- 카메라 카드 -->
+  <div class="card">
+    <div class="card-header">
+      <span>◆ CAMERA INPUT</span>
+      <span id="fps-badge" class="badge">0 FPS</span>
+    </div>
+    <div class="cam-wrap" id="cam-wrap">
+      <div class="cam-placeholder" id="placeholder">
+        <div class="cam-placeholder-icon">⬡</div>
+        <div class="cam-placeholder-text">CAMERA OFFLINE</div>
+        <div style="font-size:10px;opacity:0.45;margin-top:4px">START를 눌러 시작하세요</div>
+      </div>
+      <video id="video" autoplay playsinline muted></video>
+      <canvas id="overlay"></canvas>
+      <canvas id="analysis-canvas"></canvas>
+      <div class="cam-hint" id="cam-hint">손가락으로 드래그 → 분석 영역 설정</div>
+    </div>
+    <div class="btn-row">
+      <button class="btn" id="btn-start" onclick="startCamera()">▶ START</button>
+      <button class="btn" id="btn-roi"   onclick="toggleROI()" disabled>ROI 설정</button>
+      <button class="btn" id="btn-rroi"  onclick="resetROI()"  disabled>ROI 초기화</button>
+      <button class="btn danger"id="btn-stop" onclick="stopCamera()" disabled>■ STOP</button>
+    </div>
+  </div>
+
+  <!-- 색상 프리뷰 -->
+  <div class="card">
+    <div class="card-header"><span>◆ COLOR PREVIEW</span></div>
+    <div class="swatch-row">
+      <div id="sw-main"></div>
+      <div class="sw-ch">
+        <div id="sw-r"></div>
+        <div id="sw-g"></div>
+        <div id="sw-b"></div>
+      </div>
+    </div>
+    <div class="hex-row">
+      <span class="hex-label">HEX</span>
+      <span id="hex-val">#------</span>
+    </div>
+  </div>
+
+  <!-- RGB / HSV 메트릭 -->
+  <div class="card">
+    <div class="card-header"><span>◆ RGB / HSV METRICS</span></div>
+    <!-- RGB -->
+    <div class="metric-row">
+      <span class="m-label" style="color:#ff4466">R</span>
+      <div class="m-bar-bg"><div id="bar-r" class="m-bar" style="background:linear-gradient(90deg,#440011,#ff4466)"></div></div>
+      <span id="val-r" class="m-val" style="color:#ff4466">0</span>
+    </div>
+    <div class="metric-row">
+      <span class="m-label" style="color:#44ff88">G</span>
+      <div class="m-bar-bg"><div id="bar-g" class="m-bar" style="background:linear-gradient(90deg,#003311,#44ff88)"></div></div>
+      <span id="val-g" class="m-val" style="color:#44ff88">0</span>
+    </div>
+    <div class="metric-row">
+      <span class="m-label" style="color:#4488ff">B</span>
+      <div class="m-bar-bg"><div id="bar-b" class="m-bar" style="background:linear-gradient(90deg,#001133,#4488ff)"></div></div>
+      <span id="val-b" class="m-val" style="color:#4488ff">0</span>
+    </div>
+    <div class="sep"></div>
+    <!-- HSV -->
+    <div class="metric-row">
+      <span class="m-label" style="color:#ffaa00">H</span>
+      <div class="m-bar-bg"><div id="bar-h" class="m-bar" style="background:linear-gradient(90deg,#332200,#ffaa00)"></div></div>
+      <span id="val-h" class="m-val" style="color:#ffaa00">0°</span>
+    </div>
+    <div class="metric-row">
+      <span class="m-label" style="color:#ff66aa">S</span>
+      <div class="m-bar-bg"><div id="bar-s" class="m-bar" style="background:linear-gradient(90deg,#330022,#ff66aa)"></div></div>
+      <span id="val-s" class="m-val" style="color:#ff66aa">0%</span>
+    </div>
+    <div class="metric-row">
+      <span class="m-label" style="color:#aaccff">V</span>
+      <div class="m-bar-bg"><div id="bar-v" class="m-bar" style="background:linear-gradient(90deg,#112233,#aaccff)"></div></div>
+      <span id="val-v" class="m-val" style="color:#aaccff">0%</span>
+    </div>
+  </div>
+
+  <!-- 그래프 -->
+  <div class="card">
+    <div class="card-header">
+      <span>◆ TIMELINE GRAPH</span>
+      <span class="badge">LAST 80 FRAMES</span>
+    </div>
+    <canvas id="graph-canvas" width="456" height="110"></canvas>
+  </div>
+
+  <!-- 통계 -->
+  <div class="card">
+    <div class="card-header"><span>◆ STATISTICS</span></div>
+    <div class="stats-grid">
+      <div class="stat-item">
+        <div class="stat-lbl">LUMINANCE</div>
+        <div id="stat-lum" class="stat-val">---</div>
+      </div>
+      <div class="stat-item">
+        <div class="stat-lbl">DOMINANT</div>
+        <div id="stat-dom" class="stat-val">---</div>
+      </div>
+      <div class="stat-item">
+        <div class="stat-lbl">COLOR TEMP</div>
+        <div id="stat-temp" class="stat-val">---</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 로그 -->
+  <div class="card">
+    <div class="card-header"><span>◆ SYSTEM LOG</span></div>
+    <div id="log-box"></div>
+  </div>
+
+</div><!-- /#app -->
+
+<script>
+// ─── 1. 상수 ───────────────────────────────────────────
+const CFG = {
+  INTERVAL: 80,       // 분석 주기 ms
+  MAX_PTS:  80,       // 그래프 최대 포인트
+  STEP:     4,        // 픽셀 샘플 간격
+};
+
+// ─── 2. 상태 ───────────────────────────────────────────
+const S = {
+  running:   false,
+  roiMode:   false,
+  roi:       null,      // {x,y,w,h} 0~1 정규화
+  drag:      null,
+  timer:     null,
+  stream:    null,
+  history:   { r:[], g:[], b:[] },
+  fps:       0,
+  fCount:    0,
+  fLast:     Date.now(),
+};
+
+// ─── 3. DOM 참조 ───────────────────────────────────────
+const video    = document.getElementById('video');
+const overlay  = document.getElementById('overlay');
+const aCanvas  = document.getElementById('analysis-canvas');
+const gCanvas  = document.getElementById('graph-canvas');
+const octx     = overlay.getContext('2d');
+const actx     = aCanvas.getContext('2d', { willReadFrequently: true });
+const gctx     = gCanvas.getContext('2d');
+
+// ─── 4. 유틸 함수 ──────────────────────────────────────
+
+/** RGB → HSV 변환 */
+function rgbToHsv(r, g, b) {
+  const rn=r/255, gn=g/255, bn=b/255;
+  const mx=Math.max(rn,gn,bn), mn=Math.min(rn,gn,bn), d=mx-mn;
+  let h=0;
+  if(d!==0){
+    if(mx===rn)      h=60*(((gn-bn)/d)%6);
+    else if(mx===gn) h=60*(((bn-rn)/d)+2);
+    else             h=60*(((rn-gn)/d)+4);
+  }
+  if(h<0) h+=360;
+  return {
+    h: Math.round(h),
+    s: Math.round(mx===0 ? 0 : (d/mx)*100),
+    v: Math.round(mx*100),
+  };
+}
+
+/** RGBA 배열 → 평균 RGB */
+function avgRGB(data) {
+  let r=0,g=0,b=0,n=0;
+  const step = CFG.STEP * 4;
+  for(let i=0;i<data.length;i+=step){ r+=data[i]; g+=data[i+1]; b+=data[i+2]; n++; }
+  if(!n) return {r:0,g:0,b:0};
+  return { r:Math.round(r/n), g:Math.round(g/n), b:Math.round(b/n) };
+}
+
+const hex2 = n => n.toString(16).padStart(2,'0');
+
+function dominant(r,g,b) {
+  if(r>=g&&r>=b) return {label:'RED',   color:'#ff4466'};
+  if(g>=r&&g>=b) return {label:'GREEN', color:'#44ff88'};
+  return              {label:'BLUE',  color:'#4488ff'};
+}
+
+function colorTemp(r,g,b) {
+  if(b>r*1.25) return {label:'COOL',    color:'#88ccff'};
+  if(r>b*1.25) return {label:'WARM',    color:'#ffaa44'};
+  return             {label:'NEUTRAL', color:'#aabbcc'};
+}
+
+// ─── 5. 카메라 시작/중지 ────────────────────────────────
+
+async function startCamera() {
+  hideErr();
+  try {
+    S.stream = await navigator.mediaDevices.getUserMedia({
+      video: {
+        facingMode: { ideal: 'environment' },
+        width:  { ideal: 1280 },
+        height: { ideal: 720 },
+      }
+    });
+    video.srcObject = S.stream;
+    await video.play();
+
+    // 캔버스 크기 동기화
+    overlay.width = aCanvas.width = video.videoWidth  || 640;
+    overlay.height= aCanvas.height= video.videoHeight || 480;
+
+    S.running = true;
+    S.fLast   = Date.now();
+    S.fCount  = 0;
+    S.timer   = setInterval(analyzeFrame, CFG.INTERVAL);
+
+    video.style.display = 'block';
+    document.getElementById('placeholder').style.display = 'none';
+    document.getElementById('status-dot').classList.add('live');
+    document.getElementById('status-txt').textContent = 'LIVE';
+    setBtns(true);
+    addLog('카메라 시작됨');
+  } catch(e) {
+    const msg = e.name === 'NotAllowedError'
+      ? '카메라 권한이 거부되었습니다.\n① Safari 주소창 왼쪽 AA 탭\n② 웹사이트 설정 → 카메라 → 허용'
+      : `카메라 오류: ${e.message}`;
+    showErr(msg);
+    addLog('오류: ' + e.message);
+  }
+}
+
+function stopCamera() {
+  clearInterval(S.timer);
+  S.stream?.getTracks().forEach(t => t.stop());
+  S.stream  = null;
+  S.running = false;
+  video.style.display = 'none';
+  document.getElementById('placeholder').style.display = 'flex';
+  document.getElementById('status-dot').classList.remove('live');
+  document.getElementById('status-txt').textContent = 'STANDBY';
+  octx.clearRect(0,0,overlay.width,overlay.height);
+  setBtns(false);
+  resetDisplay();
+  addLog('카메라 중지됨');
+}
+
+function setBtns(on) {
+  document.getElementById('btn-start').disabled = on;
+  document.getElementById('btn-roi').disabled   = !on;
+  document.getElementById('btn-rroi').disabled  = !on;
+  document.getElementById('btn-stop').disabled  = !on;
+  document.getElementById('btn-start').classList.toggle('on', !on);
+}
+
+// ─── 6. ROI 설정 ───────────────────────────────────────
+
+function toggleROI() {
+  S.roiMode = !S.roiMode;
+  const btn = document.getElementById('btn-roi');
+  btn.classList.toggle('on', S.roiMode);
+  btn.textContent = S.roiMode ? 'ROI 중...' : 'ROI 설정';
+  document.getElementById('cam-hint').style.display = S.roiMode ? 'block' : 'none';
+  addLog(S.roiMode ? 'ROI 설정 모드 활성화' : 'ROI 설정 완료');
+}
+
+function resetROI() {
+  S.roi = null;
+  S.roiMode = false;
+  document.getElementById('btn-roi').classList.remove('on');
+  document.getElementById('btn-roi').textContent = 'ROI 설정';
+  document.getElementById('cam-hint').style.display = 'none';
+  addLog('ROI 초기화');
+}
+
+/** 터치/마우스 위치를 캔버스 상대 좌표(0~1)로 변환 */
+function relPos(e, el) {
+  const rect = el.getBoundingClientRect();
+  const src  = e.touches ? e.touches[0] : e;
+  return {
+    x: Math.max(0, Math.min(1, (src.clientX - rect.left)  / rect.width)),
+    y: Math.max(0, Math.min(1, (src.clientY - rect.top)   / rect.height)),
+  };
+}
+
+const camWrap = document.getElementById('cam-wrap');
+
+camWrap.addEventListener('mousedown',  onDown,  { passive:false });
+camWrap.addEventListener('mousemove',  onMove,  { passive:false });
+camWrap.addEventListener('mouseup',    onUp,    { passive:false });
+camWrap.addEventListener('touchstart', onDown,  { passive:false });
+camWrap.addEventListener('touchmove',  onMove,  { passive:false });
+camWrap.addEventListener('touchend',   onUp,    { passive:false });
+
+function onDown(e) {
+  if(!S.roiMode || !S.running) return;
+  e.preventDefault();
+  S.drag = relPos(e, camWrap);
+}
+function onMove(e) {
+  if(!S.drag) return;
+  e.preventDefault();
+  const cur = relPos(e, camWrap);
+  S.roi = {
+    x: Math.min(S.drag.x, cur.x), y: Math.min(S.drag.y, cur.y),
+    w: Math.abs(cur.x - S.drag.x), h: Math.abs(cur.y - S.drag.y),
+  };
+}
+function onUp(e) {
+  if(!S.drag) return;
+  S.drag = null;
+  if(S.roi && S.roi.w < 0.02) S.roi = null;
+  toggleROI();
+}
+
+// ─── 7. 핵심 분석 루프 ─────────────────────────────────
+
+function analyzeFrame() {
+  if(!S.running || video.readyState < 2) return;
+
+  const vw = video.videoWidth, vh = video.videoHeight;
+
+  // 비디오 → 분석 캔버스
+  actx.drawImage(video, 0, 0, vw, vh);
+
+  // ROI 픽셀 영역
+  const roi = S.roi
+    ? { x:Math.floor(S.roi.x*vw), y:Math.floor(S.roi.y*vh),
+        w:Math.max(1,Math.floor(S.roi.w*vw)), h:Math.max(1,Math.floor(S.roi.h*vh)) }
+    : { x:0, y:0, w:vw, h:vh };
+
+  const imgData = actx.getImageData(roi.x, roi.y, roi.w, roi.h);
+  const rgb = avgRGB(imgData.data);
+  const hsv = rgbToHsv(rgb.r, rgb.g, rgb.b);
+
+  updateDisplay(rgb, hsv);
+  pushHistory(rgb);
+  drawOverlay(vw, vh, roi);
+  drawGraph();
+  calcFPS();
+}
+
+// ─── 8. UI 업데이트 ────────────────────────────────────
+
+function updateDisplay(rgb, hsv) {
+  const {r,g,b} = rgb;
+  const {h,s,v} = hsv;
+
+  setBar('r', r, 255); setVal('r', r, '');
+  setBar('g', g, 255); setVal('g', g, '');
+  setBar('b', b, 255); setVal('b', b, '');
+  setBar('h', h, 360); setVal('h', h, '°');
+  setBar('s', s, 100); setVal('s', s, '%');
+  setBar('v', v, 100); setVal('v', v, '%');
+
+  document.getElementById('sw-main').style.background = `rgb(${r},${g},${b})`;
+  document.getElementById('sw-r').style.background    = `rgb(${r},0,0)`;
+  document.getElementById('sw-g').style.background    = `rgb(0,${g},0)`;
+  document.getElementById('sw-b').style.background    = `rgb(0,0,${b})`;
+  document.getElementById('hex-val').textContent =
+    `#${hex2(r)}${hex2(g)}${hex2(b)}`.toUpperCase();
+
+  const lum  = Math.round(0.2126*r + 0.7152*g + 0.0722*b);
+  const dom  = dominant(r,g,b);
+  const temp = colorTemp(r,g,b);
+  document.getElementById('stat-lum').textContent  = lum;
+  document.getElementById('stat-dom').style.color  = dom.color;
+  document.getElementById('stat-dom').textContent  = dom.label;
+  document.getElementById('stat-temp').style.color = temp.color;
+  document.getElementById('stat-temp').textContent = temp.label;
+}
+
+function setBar(ch, val, max) {
+  document.getElementById(`bar-${ch}`).style.width = `${(val/max*100).toFixed(1)}%`;
+}
+function setVal(ch, val, unit) {
+  document.getElementById(`val-${ch}`).textContent = val + unit;
+}
+
+function resetDisplay() {
+  ['r','g','b','h','s','v'].forEach(ch => {
+    document.getElementById(`bar-${ch}`).style.width = '0%';
+  });
+  document.getElementById('val-r').textContent = '0';
+  document.getElementById('val-g').textContent = '0';
+  document.getElementById('val-b').textContent = '0';
+  document.getElementById('val-h').textContent = '0°';
+  document.getElementById('val-s').textContent = '0%';
+  document.getElementById('val-v').textContent = '0%';
+  document.getElementById('hex-val').textContent = '#------';
+  document.getElementById('stat-lum').textContent  = '---';
+  document.getElementById('stat-dom').textContent  = '---';
+  document.getElementById('stat-temp').textContent = '---';
+  ['sw-main','sw-r','sw-g','sw-b'].forEach(id =>
+    document.getElementById(id).style.background = '');
+}
+
+// ─── 9. 오버레이 그리기 ────────────────────────────────
+
+function drawOverlay(vw, vh, roi) {
+  octx.clearRect(0, 0, overlay.width, overlay.height);
+  const sx = overlay.width/vw, sy = overlay.height/vh;
+  const x=roi.x*sx, y=roi.y*sy, w=roi.w*sx, h=roi.h*sy;
+
+  // ROI 외부 어둡게 (ROI가 설정된 경우에만)
+  if(S.roi) {
+    octx.fillStyle = 'rgba(0,0,0,0.38)';
+    octx.fillRect(0,0,overlay.width,overlay.height);
+    octx.clearRect(x,y,w,h);
+  }
+
+  // ROI 테두리
+  octx.strokeStyle = 'rgba(0,210,255,0.85)';
+  octx.lineWidth   = 2;
+  octx.setLineDash([6,3]);
+  octx.strokeRect(x,y,w,h);
+  octx.setLineDash([]);
+
+  // 중심 십자선
+  const cx=x+w/2, cy=y+h/2;
+  octx.strokeStyle = 'rgba(0,210,255,0.45)';
+  octx.lineWidth   = 1;
+  octx.beginPath();
+  octx.moveTo(cx-10,cy); octx.lineTo(cx+10,cy);
+  octx.moveTo(cx,cy-10); octx.lineTo(cx,cy+10);
+  octx.stroke();
+}
+
+// ─── 10. 그래프 ────────────────────────────────────────
+
+function pushHistory(rgb) {
+  const H = S.history;
+  H.r.push(rgb.r); H.g.push(rgb.g); H.b.push(rgb.b);
+  if(H.r.length > CFG.MAX_PTS) { H.r.shift(); H.g.shift(); H.b.shift(); }
+}
+
+function drawGraph() {
+  const W=gCanvas.width, H=gCanvas.height;
+  const p={t:6,b:14,l:6,r:6};
+  const iW=W-p.l-p.r, iH=H-p.t-p.b;
+
+  gctx.clearRect(0,0,W,H);
+  gctx.fillStyle='rgba(4,7,14,0.95)';
+  gctx.fillRect(0,0,W,H);
+
+  // 그리드
+  gctx.strokeStyle='rgba(255,255,255,0.05)';
+  gctx.lineWidth=1;
+  [0.25,0.5,0.75].forEach(r=>{
+    const y=p.t+iH*(1-r);
+    gctx.beginPath(); gctx.moveTo(p.l,y); gctx.lineTo(W-p.r,y); gctx.stroke();
+  });
+
+  const n = S.history.r.length;
+  if(n<2) return;
+
+  [
+    {d:S.history.r, c:'rgba(255,68,102,0.9)',  lbl:'R'},
+    {d:S.history.g, c:'rgba(68,255,136,0.9)',  lbl:'G'},
+    {d:S.history.b, c:'rgba(68,136,255,0.9)',  lbl:'B'},
+  ].forEach(({d,c,lbl},li)=>{
+    gctx.beginPath();
+    gctx.strokeStyle=c; gctx.lineWidth=1.5;
+    d.forEach((v,i)=>{
+      const x=p.l+(i/(n-1))*iW;
+      const y=p.t+iH*(1-v/255);
+      i===0?gctx.moveTo(x,y):gctx.lineTo(x,y);
+    });
+    gctx.stroke();
+    gctx.fillStyle=c;
+    gctx.font='9px monospace';
+    gctx.fillText(lbl, p.l+2+li*18, H-3);
+  });
+}
+
+// ─── 11. FPS ───────────────────────────────────────────
+
+function calcFPS() {
+  S.fCount++;
+  const now = Date.now();
+  if(now - S.fLast >= 1000) {
+    S.fps    = S.fCount;
+    S.fCount = 0;
+    S.fLast  = now;
+    document.getElementById('fps-badge').textContent = `${S.fps} FPS`;
+  }
+}
+
+// ─── 12. 로그 / 오류 ───────────────────────────────────
+
+function addLog(msg) {
+  const box = document.getElementById('log-box');
+  const t   = new Date().toTimeString().slice(0,8);
+  const div = document.createElement('div');
+  div.textContent = `[${t}] ${msg}`;
+  box.appendChild(div);
+  box.scrollTop = box.scrollHeight;
+  while(box.children.length > 30) box.removeChild(box.firstChild);
+}
+
+function showErr(msg) {
+  const el = document.getElementById('err-banner');
+  el.style.display = 'block';
+  el.style.whiteSpace = 'pre-line';
+  el.textContent = '⚠ ' + msg;
+}
+function hideErr() {
+  document.getElementById('err-banner').style.display = 'none';
+}
+
+// ─── 13. Service Worker 등록 ───────────────────────────
+
+if('serviceWorker' in navigator) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('./sw.js').catch(() => {});
+  });
+}
+
+// ─── 14. 초기화 ────────────────────────────────────────
+
+window.addEventListener('DOMContentLoaded', () => {
+  // 그래프 캔버스 실제 크기 맞추기
+  gCanvas.width = gCanvas.offsetWidth || 456;
+  drawGraph();
+  addLog('시스템 초기화 완료');
+  addLog('START를 눌러 카메라를 시작하세요');
+});
+</script>
+</body>
+</html>

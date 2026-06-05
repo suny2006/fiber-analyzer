@@ -1,0 +1,18 @@
+{
+  "name": "Fiber Optic Analyzer",
+  "short_name": "FiberAnalyzer",
+  "description": "Real-time RGB/HSV fiber optic light analyzer",
+  "start_url": "./index.html",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#050810",
+  "theme_color": "#00d2ff",
+  "icons": [
+    {
+      "src": "icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}
