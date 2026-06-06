@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <rect width="512" height="512" fill="#050810"/>
+  <circle cx="256" cy="256" r="200" fill="none" stroke="#00d2ff" stroke-width="8" opacity="0.3"/>
+  <circle cx="256" cy="256" r="140" fill="none" stroke="#00d2ff" stroke-width="4" opacity="0.5"/>
+  <circle cx="256" cy="256" r="60" fill="#00d2ff" opacity="0.15"/>
+  <circle cx="256" cy="256" r="30" fill="#00d2ff" opacity="0.6"/>
+  <circle cx="256" cy="256" r="12" fill="#ffffff"/>
+  <!-- 광선 효과 -->
+  <line x1="256" y1="56" x2="256" y2="116" stroke="#00d2ff" stroke-width="4" opacity="0.8"/>
+  <line x1="256" y1="396" x2="256" y2="456" stroke="#00d2ff" stroke-width="4" opacity="0.8"/>
+  <line x1="56" y1="256" x2="116" y2="256" stroke="#00d2ff" stroke-width="4" opacity="0.8"/>
+  <line x1="396" y1="256" x2="456" y2="256" stroke="#00d2ff" stroke-width="4" opacity="0.8"/>
+  <!-- 대각선 광선 -->
+  <line x1="114" y1="114" x2="157" y2="157" stroke="#7b2fff" stroke-width="3" opacity="0.6"/>
+  <line x1="355" y1="355" x2="398" y2="398" stroke="#7b2fff" stroke-width="3" opacity="0.6"/>
+  <line x1="398" y1="114" x2="355" y2="157" stroke="#ff3e6c" stroke-width="3" opacity="0.6"/>
+  <line x1="114" y1="398" x2="157" y2="355" stroke="#ff3e6c" stroke-width="3" opacity="0.6"/>
+  <!-- 텍스트 -->
+  <text x="256" y="470" text-anchor="middle" font-family="monospace" font-size="28" fill="#00d2ff" opacity="0.8" font-weight="bold">FIBER</text>
+</svg>

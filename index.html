@@ -1,0 +1,1368 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="FiberAnalyzer">
+  <meta name="theme-color" content="#0a1628">
+  <link rel="manifest" href="./manifest.json">
+  <link rel="apple-touch-icon" href="./icon.svg">
+  <title>Fiber Analyzer</title>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+  <style>
+    /* ─── 1. CSS 변수 (테마/색상) ─── */
+    :root {
+      --bg:        #050d1a;
+      --bg2:       #0a1628;
+      --panel:     rgba(13, 27, 50, 0.85);
+      --panel2:    rgba(18, 34, 60, 0.6);
+      --border:    rgba(0, 180, 255, 0.18);
+      --border-br: rgba(0, 200, 255, 0.45);
+      --accent:    #00d2ff;
+      --accent-gl: rgba(0, 210, 255, 0.5);
+      --text:      #cfe2f5;
+      --dim:       rgba(120, 150, 190, 0.6);
+      --r:         #ff4d5e;
+      --g:         #3dd87e;
+      --g2:        #3dd87e;
+      --b:         #4a9eff;
+      --live:      #36e07a;
+      --stop:      #ff4060;
+      --mono:      'SF Mono', 'Courier New', monospace;
+      --safe-top:  env(safe-area-inset-top, 0px);
+      --safe-bot:  env(safe-area-inset-bottom, 0px);
+    }
+
+    /* ─── 2. 리셋 및 기본 스타일 ─── */
+    *, *::before, *::after { margin:0; padding:0; box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
+    html, body {
+      width:100%; min-height:100%;
+      background: var(--bg);
+      color: var(--text);
+      font-family: var(--mono);
+      overflow-x: hidden;
+      overscroll-behavior-y: none;
+      touch-action: manipulation;   /* 더블탭 확대 차단 (user-scalable=no 보조) */
+    }
+    body::before {
+      content:''; position:fixed; inset:0; z-index:0; pointer-events:none;
+      background:
+        radial-gradient(ellipse 70% 40% at 15% 10%, rgba(0,150,255,0.06) 0%, transparent 55%),
+        radial-gradient(ellipse 60% 40% at 85% 90%, rgba(80,40,255,0.05) 0%, transparent 55%);
+    }
+
+    /* ─── 3. 레이아웃 ─── */
+    #app {
+      position:relative; z-index:1;
+      max-width: 520px; margin:0 auto;
+      padding: calc(var(--safe-top) + 14px) 12px calc(var(--safe-bot) + 20px);
+    }
+
+    /* ─── 4. 헤더 ─── */
+    header {
+      display:flex; justify-content:space-between; align-items:flex-start;
+      padding-bottom:14px; margin-bottom:14px;
+      border-bottom:1px solid var(--border);
+    }
+    .logo-title {
+      font-size:19px; font-weight:bold; letter-spacing:0.18em;
+      color:var(--accent); text-shadow:0 0 20px var(--accent-gl);
+    }
+    .logo-sub { font-size:9px; letter-spacing:0.16em; color:var(--dim); margin-top:3px; }
+    .head-right { display:flex; align-items:center; gap:10px; }
+    .live-ind { display:flex; align-items:center; gap:6px; font-size:11px; letter-spacing:0.12em; }
+    #live-dot { width:8px; height:8px; border-radius:50%; background:#2a3a52; transition:.3s; }
+    #live-dot.on { background:var(--live); box-shadow:0 0 10px var(--live); animation:blink 1.8s infinite; }
+    @keyframes blink { 0%,100%{opacity:1} 50%{opacity:.4} }
+    #fps-box {
+      font-size:11px; padding:4px 9px; border:1px solid var(--border-br);
+      border-radius:5px; color:var(--accent); letter-spacing:0.05em;
+    }
+    .opt-btn {
+      width:34px; height:34px; border:1px solid var(--border-br); border-radius:8px;
+      background:var(--panel2); color:var(--accent); font-size:17px; cursor:pointer;
+      display:flex; align-items:center; justify-content:center; transition:.2s;
+    }
+    .opt-btn:active { transform:scale(.92); background:rgba(0,210,255,0.12); }
+
+    /* ─── 5. 카드 공통 ─── */
+    .card {
+      background:var(--panel); border:1px solid var(--border);
+      border-radius:10px; overflow:hidden; margin-bottom:12px;
+      backdrop-filter:blur(4px);
+    }
+    .card-head {
+      padding:9px 13px; font-size:10px; letter-spacing:0.18em;
+      color:rgba(0,200,255,0.7); display:flex; justify-content:space-between; align-items:center;
+    }
+    .card-head::before { content:'◆'; margin-right:7px; color:var(--accent); font-size:9px; }
+    .ch-label { display:flex; align-items:center; }
+
+    /* ─── 6. 모드 탭 (LIVE/PHOTO) ─── */
+    .mode-tabs { display:flex; gap:0; padding:0 13px 8px; }
+    .mode-tab {
+      flex:1; padding:7px; text-align:center; font-size:11px; letter-spacing:0.1em;
+      border:1px solid var(--border); background:transparent; color:var(--dim);
+      cursor:pointer; transition:.2s;
+    }
+    .mode-tab:first-child { border-radius:6px 0 0 6px; border-right:none; }
+    .mode-tab:last-child  { border-radius:0 6px 6px 0; }
+    .mode-tab.on { background:rgba(0,210,255,0.12); color:var(--accent); border-color:var(--border-br); }
+
+    /* ─── 7. 카메라 영역 ─── */
+    .cam-wrap {
+      position:relative; background:#000; aspect-ratio:4/3;
+      overflow:hidden; touch-action:none;
+    }
+    #video { width:100%; height:100%; object-fit:cover; display:none; }
+    #photo-img { width:100%; height:100%; object-fit:contain; display:none; background:#000; }
+    #overlay { position:absolute; inset:0; width:100%; height:100%; pointer-events:none; }
+    #analysis-canvas { display:none; }
+    .cam-ph {
+      position:absolute; inset:0; display:flex; flex-direction:column;
+      align-items:center; justify-content:center; gap:10px; color:var(--dim);
+    }
+    .cam-ph-ic { font-size:42px; opacity:.18; }
+    .cam-ph-tx { font-size:11px; letter-spacing:0.15em; }
+    .cam-hint {
+      position:absolute; bottom:8px; left:50%; transform:translateX(-50%);
+      font-size:10px; color:#fff; background:rgba(0,0,0,0.6);
+      padding:4px 12px; border-radius:3px; letter-spacing:0.08em; white-space:nowrap; display:none;
+    }
+    .cam-hint.wb { background:rgba(0,160,80,0.75); }
+
+    /* ─── 8. 버튼 ─── */
+    .btn-grid {
+      display:grid; grid-template-columns:repeat(3,1fr); gap:6px; padding:10px;
+    }
+    .btn {
+      padding:10px 4px; border:1px solid var(--border-br); background:transparent;
+      color:rgba(170,200,230,0.75); font-family:var(--mono); font-size:10px;
+      letter-spacing:0.06em; cursor:pointer; border-radius:6px; transition:.18s;
+    }
+    .btn:active { transform:scale(.95); }
+    .btn.on { border-color:var(--accent); color:var(--accent); background:rgba(0,210,255,0.1); }
+    .btn.on-wb { border-color:var(--live); color:var(--live); background:rgba(54,224,122,0.1); }
+    .btn.start { color:var(--live); border-color:rgba(54,224,122,0.4); }
+    .btn.stop  { color:var(--stop); border-color:rgba(255,64,96,0.4); }
+    .btn.cap   { color:#ffc04a; border-color:rgba(255,192,74,0.4); }
+    .btn:disabled { opacity:.3; pointer-events:none; }
+
+    /* 사진 모드 버튼 */
+    .photo-controls { display:none; gap:6px; padding:10px; }
+    .photo-controls .btn { flex:1; }
+
+    /* ─── 9. COLOR MATCH PANEL ─── */
+    .match-body { padding:10px 13px 13px; }
+    .match-cols { display:flex; gap:8px; align-items:stretch; }
+    .ref-col { flex:1; }
+    .cap-col { flex:1; display:flex; flex-direction:column; }
+    .col-title { font-size:10px; text-align:center; color:var(--dim); margin-bottom:7px; letter-spacing:0.05em; }
+
+    .ref-item {
+      display:flex; align-items:center; gap:6px; margin-bottom:5px;
+      border:1.5px solid transparent; border-radius:6px; padding:3px;
+      transition:.2s; cursor:pointer;
+    }
+    .ref-item.match {
+      border-color:var(--accent); background:rgba(0,210,255,0.08);
+      box-shadow:0 0 12px rgba(0,210,255,0.25);
+    }
+    .ref-num { font-size:12px; font-weight:bold; width:14px; text-align:center; color:var(--dim); flex-shrink:0; }
+    .ref-rgb { font-size:8.5px; line-height:1.25; width:62px; flex-shrink:0; }
+    .ref-rgb .cr{color:var(--r)} .ref-rgb .cg{color:var(--g2)} .ref-rgb .cb{color:var(--b)}
+    .ref-sw { flex:1; height:30px; border-radius:4px; border:1px solid rgba(255,255,255,0.1); }
+
+    .vs-badge {
+      align-self:center; width:34px; height:34px; border-radius:50%;
+      border:1.5px solid var(--border-br); display:flex; align-items:center; justify-content:center;
+      font-size:12px; font-weight:bold; color:var(--accent); flex-shrink:0; margin:0 2px;
+    }
+    #cap-swatch {
+      flex:1; min-height:130px; border-radius:8px; background:#1a1a1a;
+      border:1px solid rgba(255,255,255,0.12); transition:background .1s;
+    }
+    .cap-rgb-row { display:flex; gap:5px; margin-top:7px; }
+    .cap-rgb-cell {
+      flex:1; text-align:center; padding:5px 2px; border-radius:5px;
+      background:var(--panel2); border:1px solid var(--border);
+    }
+    .cap-rgb-cell .lbl { font-size:9px; }
+    .cap-rgb-cell .lbl.r{color:var(--r)} .cap-rgb-cell .lbl.g{color:var(--g2)} .cap-rgb-cell .lbl.b{color:var(--b)}
+    .cap-rgb-cell .val { font-size:15px; font-weight:bold; margin-top:1px; }
+
+    /* ─── 10. 코멘트 박스 ─── */
+    .comment-box {
+      margin-top:11px; padding:10px 12px; border-radius:8px;
+      background:var(--panel2); border:1px solid var(--border);
+      font-size:11px; line-height:1.6;
+    }
+    .comment-head {
+      font-size:10px; letter-spacing:0.1em; color:var(--accent);
+      margin-bottom:5px; display:flex; align-items:center; gap:5px;
+    }
+    .match-rate { font-weight:bold; }
+    #comment-text { color:var(--text); }
+
+    /* ─── 11. RGB/HSV 메트릭 ─── */
+    .metric-row {
+      display:flex; align-items:center; gap:9px; padding:7px 13px;
+      border-bottom:1px solid rgba(0,180,255,0.05);
+    }
+    .metric-row:last-child { border-bottom:none; }
+    .m-label { width:15px; font-size:12px; font-weight:bold; flex-shrink:0; }
+    .m-bar-bg { flex:1; height:6px; background:rgba(255,255,255,0.05); border-radius:3px; overflow:hidden; }
+    .m-bar { height:100%; border-radius:3px; width:0%; transition:width .08s ease-out; }
+    .m-val { width:46px; text-align:right; font-size:14px; font-weight:bold; flex-shrink:0; }
+    .sep-line { height:1px; background:rgba(0,180,255,0.08); margin:3px 13px; }
+
+    /* ─── 12. 옵션 / 팔레트 모달 ─── */
+    .modal-bg {
+      position:fixed; inset:0; z-index:50; background:rgba(0,5,15,0.78);
+      display:none; align-items:center; justify-content:center; padding:18px;
+      backdrop-filter:blur(3px);
+    }
+    .modal-bg.show { display:flex; }
+    .modal {
+      width:100%; max-width:380px; max-height:85vh; overflow-y:auto;
+      background:var(--bg2); border:1px solid var(--border-br); border-radius:14px;
+      box-shadow:0 0 40px rgba(0,180,255,0.2);
+    }
+    .modal-head {
+      position:sticky; top:0; background:var(--bg2); z-index:2;
+      padding:14px 16px; display:flex; justify-content:space-between; align-items:center;
+      border-bottom:1px solid var(--border);
+    }
+    .modal-title { font-size:13px; letter-spacing:0.12em; color:var(--accent); }
+    .modal-close {
+      width:28px; height:28px; border:1px solid var(--border); border-radius:7px;
+      background:transparent; color:var(--text); font-size:15px; cursor:pointer;
+    }
+    .modal-body { padding:14px 16px; }
+    .modal-section-label { font-size:10px; letter-spacing:0.1em; color:var(--dim); margin-bottom:8px; }
+
+    /* 12색 팔레트 */
+    .palette-grid {
+      display:grid; grid-template-columns:repeat(4,1fr); gap:8px; margin-bottom:16px;
+    }
+    .pal-swatch {
+      aspect-ratio:1; border-radius:8px; cursor:pointer; position:relative;
+      border:2px solid transparent; transition:.15s; display:flex; align-items:flex-end;
+      justify-content:center; padding-bottom:3px;
+    }
+    .pal-swatch.sel { border-color:#fff; box-shadow:0 0 12px rgba(255,255,255,0.4); transform:scale(1.05); }
+    .pal-swatch span { font-size:8.5px; color:rgba(255,255,255,0.92); text-shadow:0 1px 3px rgba(0,0,0,0.8); font-weight:bold; }
+
+    /* 선택된 색상 6샘플 편집 */
+    .sample-edit-head { font-size:11px; color:var(--text); margin-bottom:9px; letter-spacing:0.05em; }
+    .sample-edit-head b { color:var(--accent); }
+    .sample-row {
+      display:flex; align-items:center; gap:6px; margin-bottom:7px;
+      padding:5px; border-radius:6px; background:var(--panel2);
+    }
+    .se-num { font-size:11px; font-weight:bold; width:22px; color:var(--accent); flex-shrink:0; }
+    .se-sw { width:30px; height:30px; border-radius:5px; border:1px solid rgba(255,255,255,0.15); flex-shrink:0; }
+    .se-inputs { display:flex; gap:4px; flex:1; }
+    .se-field { flex:1; display:flex; flex-direction:column; align-items:center; }
+    .se-field label { font-size:8px; margin-bottom:1px; }
+    .se-field label.r{color:var(--r)} .se-field label.g{color:var(--g2)} .se-field label.b{color:var(--b)}
+    .se-field input {
+      width:100%; padding:4px 2px; text-align:center; font-size:12px; font-family:var(--mono);
+      background:var(--bg); border:1px solid var(--border); border-radius:4px; color:var(--text);
+    }
+    .se-field input:focus { outline:none; border-color:var(--accent); }
+
+    .opt-note { font-size:10px; color:var(--dim); line-height:1.5; margin-top:10px; }
+
+    /* ─── 13. 로그 ─── */
+    #log-box { padding:7px 13px; font-size:10px; color:var(--dim); line-height:1.7; max-height:64px; overflow-y:auto; }
+    #log-box::-webkit-scrollbar { width:3px; }
+    #log-box::-webkit-scrollbar-thumb { background:var(--border); }
+
+    /* 오류 배너 */
+    #err-banner {
+      display:none; background:rgba(255,64,96,0.1); border:1px solid rgba(255,64,96,0.35);
+      border-radius:8px; padding:11px 13px; font-size:11px; color:#ff8a98;
+      margin-bottom:12px; line-height:1.5; white-space:pre-line;
+    }
+
+    .hidden-file { display:none; }
+
+    /* ─── 박스 크기조절 컨트롤 ─── */
+    .box-controls {
+      display:none; align-items:center; gap:8px;
+      padding:8px 12px; border-top:1px solid var(--border);
+    }
+    .bc-label { font-size:10px; color:var(--dim); letter-spacing:0.05em; margin-right:auto; }
+    .bc-btn {
+      min-width:42px; height:32px; border:1px solid var(--border-br); border-radius:7px;
+      background:var(--panel2); color:var(--accent); font-size:18px; font-weight:bold;
+      cursor:pointer; display:flex; align-items:center; justify-content:center;
+    }
+    .bc-btn:active { transform:scale(.92); }
+    .bc-btn.confirm { font-size:11px; min-width:auto; padding:0 12px; color:var(--live); border-color:rgba(54,224,122,0.5); }
+
+    /* ─── 포토 줌 ─── */
+    #photo-img { transform-origin:center center; transition:transform .05s linear; }
+
+    /* 사진 줌 버튼 (세로 배치, 우측) */
+    .zoom-controls {
+      position:absolute; right:8px; top:50%; transform:translateY(-50%);
+      display:none; flex-direction:column; gap:6px; align-items:center; z-index:5;
+    }
+    .zoom-controls.show { display:flex; }
+    .zoom-btn {
+      width:40px; height:40px; border-radius:10px;
+      border:1px solid var(--border-br); background:rgba(5,13,26,0.75);
+      color:var(--accent); font-size:22px; font-weight:bold; cursor:pointer;
+      display:flex; align-items:center; justify-content:center;
+      backdrop-filter:blur(4px);
+    }
+    .zoom-btn:active { transform:scale(.9); }
+    .zoom-level {
+      font-size:10px; color:#fff; background:rgba(5,13,26,0.75);
+      padding:3px 6px; border-radius:6px; letter-spacing:0.03em;
+    }
+
+    .opt-btn.eye { font-size:11px; width:auto; padding:0 10px; letter-spacing:0.05em; white-space:nowrap; }
+
+    /* ─── 육안 모드 (전체화면 흑/백) ─── */
+    #eye-mode {
+      position:fixed; inset:0; z-index:100; display:none;
+      flex-direction:column;
+    }
+    #eye-mode.show { display:flex; }
+    .eye-half { flex:1; display:flex; align-items:center; justify-content:center; }
+    .eye-black { background:#000; }
+    .eye-white { background:#fff; }
+    .eye-row {
+      display:flex; gap:0; width:100%; height:32%;
+      padding:0 4%;
+    }
+    .eye-sw { flex:1; height:100%; cursor:pointer; }
+    .eye-hint {
+      position:fixed; top:calc(var(--safe-top) + 14px); left:12px; z-index:101;
+      font-size:10px; font-family:var(--mono); color:rgba(255,255,255,0.55);
+      letter-spacing:0.03em; max-width:55%; line-height:1.4;
+    }
+    /* 육안 팔레트는 육안모드(z100) 위에 떠야 함 */
+    #eye-pal-modal { z-index:120; }
+    .eye-back {
+      position:fixed; top:calc(var(--safe-top) + 10px); right:12px; z-index:101;
+      padding:8px 12px; font-size:11px; font-family:var(--mono); letter-spacing:0.05em;
+      background:rgba(40,40,40,0.85); color:#fff; border:1px solid rgba(255,255,255,0.3);
+      border-radius:8px; cursor:pointer;
+    }
+    .eye-back:active { transform:scale(.94); }
+  </style>
+</head>
+<body>
+<div id="app">
+
+  <!-- ═══ 헤더 ═══ -->
+  <header>
+    <div>
+      <div class="logo-title">FIBER ANALYZER</div>
+      <div class="logo-sub">RGB / HSV REAL-TIME ANALYSIS</div>
+    </div>
+    <div class="head-right">
+      <div class="live-ind">
+        <span id="live-dot"></span>
+        <span id="live-txt">STANDBY</span>
+      </div>
+      <div id="fps-box">0 FPS</div>
+      <button class="opt-btn eye" onclick="openEyeMode()" title="육안 모드">육안모드</button>
+      <button class="opt-btn" onclick="openOptions()">⚙</button>
+    </div>
+  </header>
+
+  <div id="err-banner"></div>
+
+  <!-- ═══ 카메라 입력 ═══ -->
+  <div class="card">
+    <div class="card-head"><span class="ch-label">CAMERA INPUT</span></div>
+    <div class="mode-tabs">
+      <button class="mode-tab on" id="tab-live"  onclick="setMode('live')">● LIVE</button>
+      <button class="mode-tab"    id="tab-photo" onclick="setMode('photo')">▣ PHOTO</button>
+    </div>
+    <div class="cam-wrap" id="cam-wrap">
+      <div class="cam-ph" id="placeholder">
+        <div class="cam-ph-ic">⬡</div>
+        <div class="cam-ph-tx" id="ph-text">START를 눌러 시작하세요</div>
+      </div>
+      <video id="video" autoplay playsinline muted></video>
+      <img id="photo-img" alt="">
+      <canvas id="overlay"></canvas>
+      <canvas id="analysis-canvas"></canvas>
+      <div class="cam-hint" id="cam-hint"></div>
+      <!-- 사진 줌 버튼 (PHOTO 모드 전용) -->
+      <div class="zoom-controls" id="zoom-controls">
+        <button class="zoom-btn" onclick="photoZoomStep(1)">＋</button>
+        <div class="zoom-level" id="zoom-level">1.0×</div>
+        <button class="zoom-btn" onclick="photoZoomStep(-1)">−</button>
+      </div>
+    </div>
+
+    <!-- 박스 크기조절 컨트롤 (도구 활성 시 표시) -->
+    <div class="box-controls" id="box-controls">
+      <span class="bc-label" id="bc-label">측정영역 크기</span>
+      <button class="bc-btn" onclick="resizeBox(-1)">−</button>
+      <button class="bc-btn" onclick="resizeBox(1)">＋</button>
+      <button class="bc-btn confirm" id="bc-confirm" onclick="confirmWB()" style="display:none">✓ 보정 적용</button>
+    </div>
+
+    <!-- LIVE 모드 버튼 -->
+    <div class="btn-grid" id="live-controls">
+      <button class="btn start" id="btn-start" onclick="startCamera()">▶ START</button>
+      <button class="btn" id="btn-roi"  onclick="setTool('roi')"  disabled>측정영역 설정</button>
+      <button class="btn" id="btn-reset" onclick="resetAreas()" disabled>초기화</button>
+      <button class="btn" id="btn-wb"   onclick="setTool('wb')"   disabled>보정영역 설정</button>
+      <button class="btn cap" id="btn-cap" onclick="captureScreen()" disabled>캡처 저장</button>
+      <button class="btn stop" id="btn-stop" onclick="stopCamera()" disabled>■ STOP</button>
+    </div>
+
+    <!-- PHOTO 모드 버튼 -->
+    <div class="photo-controls" id="photo-controls">
+      <button class="btn" onclick="document.getElementById('file-input').click()">📷 사진 불러오기</button>
+      <button class="btn" id="btn-proi" onclick="setTool('roi')" disabled>측정영역</button>
+      <button class="btn" id="btn-pwb" onclick="setTool('wb')" disabled>보정영역</button>
+      <button class="btn" id="btn-preset" onclick="resetAreas()" disabled>초기화</button>
+      <button class="btn cap" id="btn-pcap" onclick="captureScreen()" disabled>캡처</button>
+    </div>
+    <input type="file" id="file-input" class="hidden-file" accept="image/*" onchange="loadPhoto(event)">
+  </div>
+
+  <!-- ═══ COLOR MATCH PANEL ═══ -->
+  <div class="card">
+    <div class="card-head"><span class="ch-label">COLOR MATCH PANEL</span><span id="cur-color-name" style="font-size:10px;color:var(--dim)"></span></div>
+    <div class="match-body">
+      <div class="match-cols">
+        <div class="ref-col">
+          <div class="col-title">REFERENCE (샘플)</div>
+          <div id="ref-list"><!-- JS 생성 --></div>
+        </div>
+        <div class="vs-badge">VS</div>
+        <div class="cap-col">
+          <div class="col-title">CAPTURED (측정)</div>
+          <div id="cap-swatch"></div>
+          <div class="cap-rgb-row">
+            <div class="cap-rgb-cell"><div class="lbl r">R</div><div class="val" id="cap-r">--</div></div>
+            <div class="cap-rgb-cell"><div class="lbl g">G</div><div class="val" id="cap-g">--</div></div>
+            <div class="cap-rgb-cell"><div class="lbl b">B</div><div class="val" id="cap-b">--</div></div>
+          </div>
+        </div>
+      </div>
+      <!-- 코멘트 -->
+      <div class="comment-box">
+        <div class="comment-head">📊 분석 결과 <span class="match-rate" id="match-rate"></span></div>
+        <div id="comment-text">측정을 시작하면 분석 결과가 표시됩니다.</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══ RGB/HSV METRICS ═══ -->
+  <div class="card">
+    <div class="card-head"><span class="ch-label">RGB / HSV METRICS</span></div>
+    <div class="metric-row"><span class="m-label" style="color:var(--r)">R</span><div class="m-bar-bg"><div id="bar-r" class="m-bar" style="background:linear-gradient(90deg,#441018,#ff4d5e)"></div></div><span id="val-r" class="m-val" style="color:var(--r)">0</span></div>
+    <div class="metric-row"><span class="m-label" style="color:var(--g2)">G</span><div class="m-bar-bg"><div id="bar-g" class="m-bar" style="background:linear-gradient(90deg,#0a3d22,#3dd87e)"></div></div><span id="val-g" class="m-val" style="color:var(--g2)">0</span></div>
+    <div class="metric-row"><span class="m-label" style="color:var(--b)">B</span><div class="m-bar-bg"><div id="bar-b" class="m-bar" style="background:linear-gradient(90deg,#102844,#4a9eff)"></div></div><span id="val-b" class="m-val" style="color:var(--b)">0</span></div>
+    <div class="sep-line"></div>
+    <div class="metric-row"><span class="m-label" style="color:#ffaa00">H</span><div class="m-bar-bg"><div id="bar-h" class="m-bar" style="background:linear-gradient(90deg,#332200,#ffaa00)"></div></div><span id="val-h" class="m-val" style="color:#ffaa00">0°</span></div>
+    <div class="metric-row"><span class="m-label" style="color:#ff66aa">S</span><div class="m-bar-bg"><div id="bar-s" class="m-bar" style="background:linear-gradient(90deg,#330022,#ff66aa)"></div></div><span id="val-s" class="m-val" style="color:#ff66aa">0%</span></div>
+    <div class="metric-row"><span class="m-label" style="color:#aaccff">V</span><div class="m-bar-bg"><div id="bar-v" class="m-bar" style="background:linear-gradient(90deg,#112233,#aaccff)"></div></div><span id="val-v" class="m-val" style="color:#aaccff">0%</span></div>
+  </div>
+
+  <!-- ═══ 로그 ═══ -->
+  <div class="card">
+    <div class="card-head"><span class="ch-label">SYSTEM LOG</span></div>
+    <div id="log-box"></div>
+  </div>
+
+</div>
+
+<!-- ═══ 옵션 모달 ═══ -->
+<div class="modal-bg" id="opt-modal">
+  <div class="modal">
+    <div class="modal-head">
+      <span class="modal-title">⚙ OPTIONS — 샘플 색상 관리</span>
+      <button class="modal-close" onclick="closeOptions()">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="modal-section-label">색상 계열 선택 (12색)</div>
+      <div class="palette-grid" id="opt-palette"></div>
+      <div class="sample-edit-head">선택: <b id="opt-sel-name">파랑</b> 계열 — 6단계 수정</div>
+      <div id="opt-samples"></div>
+      <div class="opt-note">※ 수치를 변경하면 즉시 컬러매치 패널에 반영됩니다. 먼셀 차트 기본값으로 시작됩니다.</div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══ 팔레트 모달 (레퍼런스 터치 시) ═══ -->
+<div class="modal-bg" id="pal-modal">
+  <div class="modal">
+    <div class="modal-head">
+      <span class="modal-title">🎨 색상 계열 선택</span>
+      <button class="modal-close" onclick="closePalette()">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="modal-section-label">선택한 색상의 6단계 먼셀 색상으로 교체됩니다</div>
+      <div class="palette-grid" id="pal-palette"></div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══ 육안 모드 (전체화면) ═══ -->
+<div id="eye-mode">
+  <button class="eye-back" onclick="closeEyeMode()">✕ 메인화면</button>
+  <div class="eye-hint">색상 패널을 터치하면 다른 계열로 바꿀 수 있어요</div>
+  <div class="eye-half eye-black">
+    <div class="eye-row" id="eye-black-row"></div>
+  </div>
+  <div class="eye-half eye-white">
+    <div class="eye-row" id="eye-white-row"></div>
+  </div>
+</div>
+
+<!-- 육안 모드 전용 팔레트 모달 -->
+<div class="modal-bg" id="eye-pal-modal">
+  <div class="modal">
+    <div class="modal-head">
+      <span class="modal-title">🎨 색상 계열 선택</span>
+      <button class="modal-close" onclick="closeEyePalette()">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="modal-section-label">선택하면 위·아래 패널이 동시에 바뀝니다</div>
+      <div class="palette-grid" id="eye-pal-grid"></div>
+    </div>
+  </div>
+</div>
+
+<script>
+// ════════════════════════════════════════════════════
+//  FIBER ANALYZER v2 - 메인 로직
+// ════════════════════════════════════════════════════
+
+// ─── 1. 먼셀 차트 데이터 (12색상 × 6샘플) ───────────────
+// 순서: S1(중심), S2(하한), S3(상한), S4(중간값), S5(하중사이), S6(중상사이)
+// 화면 표시는 1~6번 순서, 중간값 비교는 S4 사용
+const MUNSELL = {
+  blue:   { name:'청색', samples:[[41,101,172],[20,85,130],[75,125,200],[35,95,155],[31,93,151],[58,113,186]] },
+  orange: { name:'등색', samples:[[242,123,0],[180,100,20],[255,155,75],[215,115,10],[211,112,10],[249,139,38]] },
+  green:  { name:'녹색', samples:[[0,139,81],[25,105,45],[85,160,110],[40,125,70],[13,122,63],[43,150,96]] },
+  red:    { name:'적색', samples:[[191,0,49],[145,20,45],[220,85,95],[170,45,70],[168,10,47],[206,43,72]] },
+  yellow: { name:'황색', samples:[[255,207,0],[215,185,25],[255,235,100],[240,215,50],[235,196,13],[255,221,50]] },
+  violet: { name:'자색', samples:[[118,78,161],[75,65,125],[155,135,195],[100,95,145],[97,72,143],[137,107,178]] },
+  brown:  { name:'갈색', samples:[[98,61,41],[85,55,35],[135,88,70],[115,75,55],[92,58,38],[117,75,56]] },
+  black:  { name:'흑색', samples:[[46,46,46],[10,10,10],[52,52,52],[30,30,30],[28,28,28],[49,49,49]] },
+  white:  { name:'백색', samples:[[227,227,227],[222,222,222],[242,242,242],[235,235,235],[225,225,225],[235,235,235]] },
+  grey:   { name:'회색', samples:[[121,121,121],[100,100,100],[165,165,165],[140,140,140],[111,111,111],[143,143,143]] },
+  aqua:   { name:'연청', samples:[[102,189,187],[105,160,160],[185,215,215],[145,195,195],[104,175,174],[144,202,201]] },
+  pink:   { name:'연등', samples:[[210,150,175],[175,135,155],[240,195,215],[195,165,185],[193,143,165],[225,173,195]] },
+};
+const COLOR_KEYS = Object.keys(MUNSELL);
+
+// 화면 표시용 1~6번 정렬: 어두운→밝은 (S2,S5,S4,S1,S6,S3 = 차트 가로 순서)
+const DISPLAY_ORDER = [1, 4, 3, 0, 5, 2]; // samples 배열 인덱스 매핑
+
+// ─── 2. 설정 ───────────────────────────────────────────
+const CFG = { INTERVAL: 100, STEP: 4 };
+
+// ─── 3. 상태 ───────────────────────────────────────────
+const S = {
+  mode: 'live',           // 'live' | 'photo'
+  running: false,
+  tool: null,             // null | 'roi' | 'wb'  (현재 이동중인 박스)
+  // 측정영역/보정영역: 중심좌표(cx,cy)+크기(size) 0~1 정규화 네모칸
+  roi:    null,           // {cx,cy,size}
+  wbArea: null,           // {cx,cy,size}
+  wbGain: null,           // {r,g,b} 보정 계수
+  dragOffset: null,       // 박스 이동용 오프셋
+  timer: null,
+  stream: null,
+  curColor: 'blue',
+  refColors: [],
+  lastRGB: { r:0, g:0, b:0 },
+  fps: 0, fCount: 0, fLast: Date.now(),
+  photoLoaded: false,
+  // 사진 줌/패닝
+  photoZoom: 1, photoX: 0, photoY: 0,
+  panStart: null,
+};
+
+// 네모칸 크기 (size = 가로폭 기준 비율, 항상 정사각형)
+// MIN 0.02 ≈ 1280px 영상에서 한 변 약 26px
+const BOX = { DEFAULT: 0.15, MIN: 0.02, MAX: 0.5, STEP: 0.015 };
+
+// ─── 4. DOM ────────────────────────────────────────────
+const video   = document.getElementById('video');
+const photoImg= document.getElementById('photo-img');
+const overlay = document.getElementById('overlay');
+const aCanvas = document.getElementById('analysis-canvas');
+const camWrap = document.getElementById('cam-wrap');
+const octx = overlay.getContext('2d');
+const actx = aCanvas.getContext('2d', { willReadFrequently: true });
+
+// ─── 5. 유틸 함수 ──────────────────────────────────────
+
+/** RGB → HSV 변환 */
+function rgbToHsv(r, g, b) {
+  const rn=r/255, gn=g/255, bn=b/255;
+  const mx=Math.max(rn,gn,bn), mn=Math.min(rn,gn,bn), d=mx-mn;
+  let h=0;
+  if(d!==0){
+    if(mx===rn)      h=60*(((gn-bn)/d)%6);
+    else if(mx===gn) h=60*(((bn-rn)/d)+2);
+    else             h=60*(((rn-gn)/d)+4);
+  }
+  if(h<0) h+=360;
+  return { h:Math.round(h), s:Math.round(mx===0?0:(d/mx)*100), v:Math.round(mx*100) };
+}
+
+/** RGBA 픽셀배열 → 평균 RGB (WB 보정 적용) */
+function avgRGB(data) {
+  let r=0,g=0,b=0,n=0;
+  const step = CFG.STEP*4;
+  for(let i=0;i<data.length;i+=step){ r+=data[i]; g+=data[i+1]; b+=data[i+2]; n++; }
+  if(!n) return {r:0,g:0,b:0};
+  let R=r/n, G=g/n, B=b/n;
+  if(S.wbGain){
+    R=Math.min(255,R*S.wbGain.r);
+    G=Math.min(255,G*S.wbGain.g);
+    B=Math.min(255,B*S.wbGain.b);
+  }
+  return { r:Math.round(R), g:Math.round(G), b:Math.round(B) };
+}
+
+const hex2 = n => n.toString(16).padStart(2,'0');
+const rgbCss = c => `rgb(${c[0]},${c[1]},${c[2]})`;
+
+/** 두 RGB 간 유클리드 거리 */
+function rgbDist(a, b) {
+  return Math.sqrt((a.r-b[0])**2 + (a.g-b[1])**2 + (a.b-b[2])**2);
+}
+
+// ─── 6. 레퍼런스 색상 빌드 ─────────────────────────────
+
+/** 현재 색상 계열의 6색을 표시 순서대로 refColors에 채움 */
+function buildRefColors() {
+  const samples = MUNSELL[S.curColor].samples;
+  S.refColors = DISPLAY_ORDER.map(idx => samples[idx].slice());
+  document.getElementById('cur-color-name').textContent = MUNSELL[S.curColor].name + ' 계열';
+}
+
+/** 레퍼런스 리스트 DOM 렌더 */
+function renderRefList() {
+  const wrap = document.getElementById('ref-list');
+  wrap.innerHTML = '';
+  S.refColors.forEach((c, i) => {
+    const item = document.createElement('div');
+    item.className = 'ref-item';
+    item.id = `ref-${i}`;
+    item.onclick = openPalette; // 터치 시 팔레트
+    item.innerHTML = `
+      <span class="ref-num">${i+1}</span>
+      <span class="ref-rgb"><span class="cr">R ${c[0]}</span><br><span class="cg">G ${c[1]}</span><br><span class="cb">B ${c[2]}</span></span>
+      <span class="ref-sw" style="background:${rgbCss(c)}"></span>`;
+    wrap.appendChild(item);
+  });
+}
+
+// ─── 7. 컬러 매칭 + 코멘트 ─────────────────────────────
+
+/** 가장 가까운 레퍼런스 찾아 하이라이트 + 코멘트 생성 */
+function updateMatch(rgb) {
+  let best=-1, bestD=1e9;
+  S.refColors.forEach((c,i)=>{
+    const d=rgbDist(rgb,c);
+    if(d<bestD){ bestD=d; best=i; }
+  });
+
+  // 하이라이트
+  S.refColors.forEach((_,i)=>{
+    document.getElementById(`ref-${i}`)?.classList.toggle('match', i===best);
+  });
+
+  // 일치율 (거리 → %, 최대거리 약 441)
+  const rate = Math.max(0, Math.round((1 - bestD/180) * 100));
+  const rateEl = document.getElementById('match-rate');
+  rateEl.textContent = `· ${MUNSELL[S.curColor].name} ${best+1}번과 ${rate}% 일치`;
+  rateEl.style.color = rate>=85 ? 'var(--live)' : rate>=60 ? '#ffc04a' : 'var(--stop)';
+
+  // 코멘트 생성 (가장 유사한 레퍼런스 색상 기준 비교)
+  const ref = S.refColors[best]; // 가장 유사한 색상
+  generateComment(rgb, ref, best, rate);
+}
+
+/** 한글 코멘트 생성 — 가장 유사한 레퍼런스(ref) 기준 비교 */
+function generateComment(rgb, ref, bestIdx, rate) {
+  const cur = rgbToHsv(rgb.r, rgb.g, rgb.b);
+  const refHsv = rgbToHsv(ref[0], ref[1], ref[2]);
+
+  const dV = cur.v - refHsv.v;       // 명도 차
+  const dS = cur.s - refHsv.s;       // 채도 차
+  const dH = cur.h - refHsv.h;       // 색조 차
+
+  const num = bestIdx + 1;
+
+  // 밝기
+  let brightWord;
+  if(Math.abs(dV) <= 3) brightWord = `${num}번과 밝기가 거의 동일하고 `;
+  else if(dV > 0) brightWord = `${num}번보다 밝기가 ${Math.abs(dV)}% 밝고 `;
+  else brightWord = `${num}번보다 밝기가 ${Math.abs(dV)}% 어둡고 `;
+
+  // 채도(농도)
+  let satTxt;
+  if(Math.abs(dS) <= 3) satTxt = '색상 농도는 거의 동일합니다';
+  else if(dS > 0) satTxt = `색상 농도가 ${Math.abs(dS)}% 더 진합니다`;
+  else satTxt = `색상 농도가 ${Math.abs(dS)}% 더 연합니다`;
+
+  // 색조
+  let hueTxt = '';
+  if(Math.abs(dH) > 12 && Math.abs(dH) < 348){
+    const hueName = hueDescription(cur.h);
+    hueTxt = ` ${hueName}이 감돕니다.`;
+  }
+
+  let prefix;
+  if(rate >= 85) prefix = `✅ ${MUNSELL[S.curColor].name} ${num}번과 매우 유사합니다. `;
+  else if(rate >= 60) prefix = `⚠️ ${MUNSELL[S.curColor].name} ${num}번과 가장 유사하나 차이가 있습니다. `;
+  else prefix = `❌ 레퍼런스와 차이가 큽니다. 가장 가까운 색은 ${num}번입니다. `;
+
+  document.getElementById('comment-text').textContent =
+    prefix + brightWord + satTxt + '.' + hueTxt;
+}
+
+/** 색조값 → 한글 표현 */
+function hueDescription(h) {
+  if(h<15||h>=345) return '붉은빛';
+  if(h<45)  return '주황빛';
+  if(h<70)  return '노란빛';
+  if(h<160) return '초록빛';
+  if(h<200) return '청록빛';
+  if(h<260) return '푸른빛';
+  if(h<320) return '보랏빛';
+  return '분홍빛';
+}
+
+// ─── 8. 모드 전환 ──────────────────────────────────────
+function setMode(m){
+  if(S.mode===m) return;
+  S.mode=m;
+  document.getElementById('tab-live').classList.toggle('on', m==='live');
+  document.getElementById('tab-photo').classList.toggle('on', m==='photo');
+  document.getElementById('live-controls').style.display  = m==='live' ? 'grid':'none';
+  document.getElementById('photo-controls').style.display = m==='photo'? 'flex':'none';
+
+  // 모드 바뀌면 정리
+  if(m==='photo'){ if(S.running) stopCamera(); video.style.display='none'; }
+  else { photoImg.style.display='none'; S.photoLoaded=false; clearInterval(S.timer); resetPhotoZoom(); }
+  document.getElementById('zoom-controls').classList.remove('show'); // 줌버튼 숨김
+  resetAreas();
+  document.getElementById('placeholder').style.display='flex';
+  document.getElementById('ph-text').textContent = m==='live'?'START를 눌러 시작하세요':'사진을 불러오세요';
+  octx.clearRect(0,0,overlay.width,overlay.height);
+  addLog(m==='live'?'LIVE 모드':'PHOTO 모드');
+}
+
+// ─── 9. 카메라 ─────────────────────────────────────────
+async function startCamera(){
+  hideErr();
+  try{
+    S.stream = await navigator.mediaDevices.getUserMedia({
+      video:{ facingMode:{ideal:'environment'}, width:{ideal:1280}, height:{ideal:720} }
+    });
+    video.srcObject=S.stream;
+    await video.play();
+    overlay.width=aCanvas.width=video.videoWidth||640;
+    overlay.height=aCanvas.height=video.videoHeight||480;
+    S.running=true; S.fLast=Date.now(); S.fCount=0;
+    S.timer=setInterval(analyzeLive, CFG.INTERVAL);
+    video.style.display='block';
+    document.getElementById('placeholder').style.display='none';
+    document.getElementById('live-dot').classList.add('on');
+    document.getElementById('live-txt').textContent='LIVE';
+    liveBtns(true);
+    addLog('카메라 시작');
+  }catch(e){
+    const msg = e.name==='NotAllowedError'
+      ? '카메라 권한이 거부되었습니다.\nSafari 주소창 AA → 웹사이트 설정 → 카메라 → 허용'
+      : `카메라 오류: ${e.message}`;
+    showErr(msg); addLog('오류: '+e.message);
+  }
+}
+
+function stopCamera(){
+  clearInterval(S.timer);
+  S.stream?.getTracks().forEach(t=>t.stop());
+  S.stream=null; S.running=false;
+  video.style.display='none';
+  document.getElementById('placeholder').style.display='flex';
+  document.getElementById('live-dot').classList.remove('on');
+  document.getElementById('live-txt').textContent='STANDBY';
+  octx.clearRect(0,0,overlay.width,overlay.height);
+  liveBtns(false);
+  addLog('카메라 중지');
+}
+
+function liveBtns(on){
+  document.getElementById('btn-start').disabled=on;
+  ['btn-roi','btn-reset','btn-wb','btn-cap','btn-stop'].forEach(id=>document.getElementById(id).disabled=!on);
+  document.getElementById('btn-start').classList.toggle('on',!on);
+}
+
+// ─── 10. 사진 불러오기 ─────────────────────────────────
+function loadPhoto(e){
+  const file=e.target.files[0];
+  if(!file) return;
+  const url=URL.createObjectURL(file);
+  photoImg.onload=()=>{
+    overlay.width=aCanvas.width=photoImg.naturalWidth;
+    overlay.height=aCanvas.height=photoImg.naturalHeight;
+    photoImg.style.display='block';
+    document.getElementById('placeholder').style.display='none';
+    S.photoLoaded=true;
+    resetPhotoZoom();
+    document.getElementById('zoom-controls').classList.add('show');
+    document.getElementById('zoom-level').textContent='1.0×';
+    // 포토 모드 버튼 활성화 (측정영역/보정영역/초기화/캡처)
+    ['btn-proi','btn-pwb','btn-preset','btn-pcap'].forEach(id=>{
+      const el=document.getElementById(id); if(el) el.disabled=false;
+    });
+    analyzePhoto();
+    addLog('사진 불러옴 (＋/− 로 확대, 확대 후 드래그로 이동)');
+  };
+  photoImg.src=url;
+}
+
+// ─── 11. 측정영역 / 보정영역 (네모칸 방식) ─────────────
+
+/** 도구 선택: 박스 생성/토글. 이미 있으면 이동 모드 활성화 */
+function setTool(t){
+  if(S.mode==='live'&&!S.running) return;
+  if(S.mode==='photo'&&!S.photoLoaded) return;
+
+  // 같은 도구 다시 누르면 끔
+  if(S.tool===t){ S.tool=null; updateToolUI(); redrawOverlay(); return; }
+
+  S.tool=t;
+  // 해당 박스가 없으면 화면 중앙에 기본 크기로 생성
+  if(t==='roi' && !S.roi)    S.roi    = { cx:0.5, cy:0.5, size:BOX.DEFAULT };
+  if(t==='wb'  && !S.wbArea) S.wbArea = { cx:0.5, cy:0.5, size:BOX.DEFAULT };
+
+  updateToolUI();
+  reanalyze();
+}
+
+function updateToolUI(){
+  ['btn-roi','btn-proi'].forEach(id=>document.getElementById(id)?.classList.toggle('on',S.tool==='roi'));
+  ['btn-wb','btn-pwb'].forEach(id=>document.getElementById(id)?.classList.toggle('on-wb',S.tool==='wb'));
+  // 박스 크기조절 컨트롤 표시
+  const ctrl=document.getElementById('box-controls');
+  const label=document.getElementById('bc-label');
+  const confirm=document.getElementById('bc-confirm');
+  if(ctrl){
+    ctrl.style.display = S.tool ? 'flex' : 'none';
+    if(S.tool==='roi'){ label.textContent='측정영역 크기'; confirm.style.display='none'; }
+    else if(S.tool==='wb'){ label.textContent='보정영역 크기'; confirm.style.display='block'; }
+  }
+  const hint=document.getElementById('cam-hint');
+  if(S.tool==='roi'){ hint.textContent='네모칸을 드래그해 이동 · +/- 로 크기조절'; hint.className='cam-hint'; hint.style.display='block'; }
+  else if(S.tool==='wb'){ hint.textContent='흰 종이 위에 네모칸 놓고 ✓ 보정 적용'; hint.className='cam-hint wb'; hint.style.display='block'; }
+  else hint.style.display='none';
+}
+
+/** + / - 버튼: 현재 도구 박스 크기 조절 */
+function resizeBox(dir){
+  const box = S.tool==='roi' ? S.roi : S.tool==='wb' ? S.wbArea : null;
+  if(!box) return;
+  box.size = Math.max(BOX.MIN, Math.min(BOX.MAX, box.size + dir*BOX.STEP));
+  reanalyze();
+}
+
+/** 보정영역 확정 버튼 (WB 적용) */
+function confirmWB(){
+  if(!S.wbArea) return;
+  applyWhiteBalance();
+  S.tool=null;
+  updateToolUI();
+  reanalyze();
+}
+
+function resetAreas(){
+  S.roi=null; S.wbArea=null; S.wbGain=null; S.tool=null;
+  updateToolUI();
+  reanalyze();
+  addLog('측정영역 + 보정 초기화');
+}
+
+/** 분석+오버레이 갱신 (모드 공통) */
+function reanalyze(){
+  if(S.mode==='photo'&&S.photoLoaded) analyzePhoto();
+  else if(S.mode==='live'&&S.running) { /* 다음 프레임에 자동 */ redrawOverlay(); }
+  else redrawOverlay();
+}
+
+function redrawOverlay(){
+  if(S.mode==='photo') drawPhotoOverlay();
+  else drawOverlay(video.videoWidth||overlay.width, video.videoHeight||overlay.height);
+}
+
+// ─── 드래그 이동 (네모칸 위치 이동) ────────────────────
+function relPos(e){
+  const rect=camWrap.getBoundingClientRect();
+  const src=e.touches?e.touches[0]:e;
+  return {
+    x:Math.max(0,Math.min(1,(src.clientX-rect.left)/rect.width)),
+    y:Math.max(0,Math.min(1,(src.clientY-rect.top)/rect.height)),
+  };
+}
+['mousedown','touchstart'].forEach(ev=>camWrap.addEventListener(ev,onDown,{passive:false}));
+['mousemove','touchmove'].forEach(ev=>camWrap.addEventListener(ev,onMove,{passive:false}));
+['mouseup','touchend'].forEach(ev=>camWrap.addEventListener(ev,onUp,{passive:false}));
+
+function activeBox(){ return S.tool==='roi' ? S.roi : S.tool==='wb' ? S.wbArea : null; }
+
+function onDown(e){
+  // 줌 버튼(+/-) 위 터치는 패닝으로 가로채지 않음 → 버튼 클릭이 정상 동작하도록 통과
+  if(e.target && e.target.closest && e.target.closest('.zoom-controls')) return;
+  // 사진 확대 상태 + 측정도구 꺼짐 → 패닝 시작
+  if(S.mode==='photo' && !S.tool && S.photoZoom>1){
+    const src=e.touches?e.touches[0]:e;
+    S.panStart={ x:src.clientX, y:src.clientY, ox:S.photoX, oy:S.photoY };
+    e.preventDefault();
+    return;
+  }
+  const box=activeBox();
+  if(!box) return;
+  e.preventDefault();
+  const p=relPos(e);
+  // 박스 중심 기준 오프셋 저장 → 박스 어디를 잡아도 자연스럽게 이동
+  S.dragOffset = { dx: p.x - box.cx, dy: p.y - box.cy };
+}
+
+function onMove(e){
+  // 사진 확대 상태에서 한 손가락 드래그 → 사진 이동 (측정도구 꺼져 있을 때)
+  if(S.mode==='photo' && !S.tool && S.photoZoom>1 && S.panStart){
+    e.preventDefault();
+    const src=e.touches?e.touches[0]:e;
+    const dx=src.clientX-S.panStart.x;
+    const dy=src.clientY-S.panStart.y;
+    S.photoX = S.panStart.ox + dx/S.photoZoom;
+    S.photoY = S.panStart.oy + dy/S.photoZoom;
+    applyPhotoTransform();
+    return;
+  }
+  const box=activeBox();
+  if(!box || !S.dragOffset) return;
+  e.preventDefault();
+  const p=relPos(e);
+  box.cx = Math.max(0, Math.min(1, p.x - S.dragOffset.dx));
+  box.cy = Math.max(0, Math.min(1, p.y - S.dragOffset.dy));
+  reanalyze();
+}
+
+function onUp(e){
+  S.panStart=null;
+  if(!S.dragOffset) return;
+  S.dragOffset=null;
+  reanalyze();
+}
+
+/** 사진 줌 +/- 버튼 (1배 ~ 15배, 0.5단계) */
+function photoZoomStep(dir){
+  if(!S.photoLoaded) return;
+  S.photoZoom = Math.max(1, Math.min(15, S.photoZoom + dir*0.5));
+  if(S.photoZoom===1){ S.photoX=0; S.photoY=0; }
+  applyPhotoTransform();
+  const lvl=document.getElementById('zoom-level');
+  if(lvl) lvl.textContent = S.photoZoom.toFixed(1)+'×';
+}
+
+/** 네모칸(cx,cy,size) → 이미지 픽셀 사각형 {x,y,w,h}
+ *  화면상 정사각형과 동일한 영역을 측정하도록 표시비율 보정 */
+function boxToPixelRect(box, vw, vh){
+  const dispW = camWrap.clientWidth || vw;
+  const dispH = camWrap.clientHeight || vh;
+  // 화면상 한 변(px) → 이미지 픽셀로 환산 (가로/세로 각각)
+  const sideDisp = box.size * dispW;
+  let w = sideDisp * (vw/dispW);   // = box.size*vw
+  let h = sideDisp * (vh/dispH);
+  let x = box.cx*vw - w/2;
+  let y = box.cy*vh - h/2;
+  if(x<0)x=0; if(y<0)y=0;
+  if(x+w>vw)x=vw-w; if(y+h>vh)y=vh-h;
+  x=Math.max(0,x); y=Math.max(0,y);
+  w=Math.max(1,Math.min(vw-x,w)); h=Math.max(1,Math.min(vh-y,h));
+  return { x:Math.floor(x), y:Math.floor(y), w:Math.floor(w), h:Math.floor(h) };
+}
+
+// ─── 12. 화이트밸런스 자동 적용 ────────────────────────
+function applyWhiteBalance(){
+  const src = S.mode==='live' ? video : photoImg;
+  const vw=aCanvas.width, vh=aCanvas.height;
+  actx.drawImage(src,0,0,vw,vh);
+  const rect = S.mode==='photo'
+    ? photoBoxToImageRect(S.wbArea,vw,vh)
+    : boxToPixelRect(S.wbArea,vw,vh);
+  const data=actx.getImageData(rect.x,rect.y,rect.w,rect.h).data;
+  let r=0,g=0,b=0,n=0;
+  const step=CFG.STEP*4;
+  for(let i=0;i<data.length;i+=step){ r+=data[i]; g+=data[i+1]; b+=data[i+2]; n++; }
+  r/=n; g/=n; b/=n;
+  const target=Math.max(r,g,b);
+  S.wbGain={ r:target/r, g:target/g, b:target/b };
+  document.getElementById('cam-hint').style.display='none';
+  addLog(`WB 보정 적용 (gain R${S.wbGain.r.toFixed(2)} G${S.wbGain.g.toFixed(2)} B${S.wbGain.b.toFixed(2)})`);
+}
+
+// ─── 사진 줌/이동 transform 적용 ───────────────────────
+function applyPhotoTransform(){
+  photoImg.style.transform = `scale(${S.photoZoom}) translate(${S.photoX}px,${S.photoY}px)`;
+  if(S.photoLoaded) analyzePhoto();
+}
+function resetPhotoZoom(){ S.photoZoom=1; S.photoX=0; S.photoY=0; applyPhotoTransform(); }
+
+// ─── 13. 분석 (LIVE) ───────────────────────────────────
+function analyzeLive(){
+  if(!S.running||video.readyState<2) return;
+  const vw=video.videoWidth, vh=video.videoHeight;
+  actx.drawImage(video,0,0,vw,vh);
+  doAnalysis(vw,vh);
+  drawOverlay(vw,vh);
+  calcFPS();
+}
+
+// ─── 분석 (PHOTO) ─────────────────────────────────────
+function analyzePhoto(){
+  if(!S.photoLoaded) return;
+  const vw=photoImg.naturalWidth, vh=photoImg.naturalHeight;
+  actx.drawImage(photoImg,0,0,vw,vh);
+
+  // 측정 박스(S.roi)가 화면에서 가리키는 원본 픽셀 영역 계산
+  const rect = S.roi ? photoBoxToImageRect(S.roi, vw, vh) : {x:0,y:0,w:vw,h:vh};
+  const data=actx.getImageData(rect.x,rect.y,rect.w,rect.h).data;
+  const rgb=avgRGB(data);
+  S.lastRGB=rgb;
+  const hsv=rgbToHsv(rgb.r,rgb.g,rgb.b);
+  updateMetrics(rgb,hsv);
+  updateCaptured(rgb);
+  updateMatch(rgb);
+  drawPhotoOverlay();
+}
+
+/** 화면상 네모칸 → 줌/패닝/contain 역산한 원본 이미지 픽셀 영역 */
+function photoBoxToImageRect(box, vw, vh){
+  const dispW=camWrap.clientWidth, dispH=camWrap.clientHeight;
+  // 1) object-fit:contain 으로 표시된 사진의 화면상 위치/크기 (줌 1배 기준)
+  const imgRatio=vw/vh, boxRatio=dispW/dispH;
+  let baseW, baseH;
+  if(imgRatio > boxRatio){ baseW=dispW; baseH=dispW/imgRatio; }
+  else                   { baseH=dispH; baseW=dispH*imgRatio; }
+  // 2) 줌/패닝 적용된 화면상 사진 크기·중심
+  const z=S.photoZoom;
+  const dispImgW=baseW*z, dispImgH=baseH*z;
+  const cxScreen=dispW/2 + S.photoX*z;   // 사진 중심의 화면 x
+  const cyScreen=dispH/2 + S.photoY*z;
+  const imgLeft=cxScreen - dispImgW/2;
+  const imgTop =cyScreen - dispImgH/2;
+  // 3) 측정 박스 화면 좌표 (정사각형, 화면 가로폭 기준)
+  const sideScreen=box.size*dispW;
+  const bxScreen=box.cx*dispW - sideScreen/2;
+  const byScreen=box.cy*dispH - sideScreen/2;
+  // 4) 화면 → 원본 이미지 픽셀 변환
+  const sx=vw/dispImgW, sy=vh/dispImgH;
+  let ix=(bxScreen-imgLeft)*sx;
+  let iy=(byScreen-imgTop )*sy;
+  let iw=sideScreen*sx;
+  let ih=sideScreen*sy;
+  // 5) 원본 경계로 클램프
+  ix=Math.max(0,Math.min(vw-1,ix));
+  iy=Math.max(0,Math.min(vh-1,iy));
+  iw=Math.max(1,Math.min(vw-ix,iw));
+  ih=Math.max(1,Math.min(vh-iy,ih));
+  return { x:Math.floor(ix), y:Math.floor(iy), w:Math.floor(iw), h:Math.floor(ih) };
+}
+
+/** 공통 분석 처리 (LIVE용) */
+function doAnalysis(vw,vh){
+  const rect = S.roi ? boxToPixelRect(S.roi,vw,vh) : {x:0,y:0,w:vw,h:vh};
+  const data=actx.getImageData(rect.x,rect.y,rect.w,rect.h).data;
+  const rgb=avgRGB(data);
+  S.lastRGB=rgb;
+  const hsv=rgbToHsv(rgb.r,rgb.g,rgb.b);
+  updateMetrics(rgb,hsv);
+  updateCaptured(rgb);
+  updateMatch(rgb);
+}
+
+// ─── 14. UI 업데이트 ───────────────────────────────────
+function updateMetrics(rgb,hsv){
+  setBar('r',rgb.r,255); setVal('r',rgb.r,'');
+  setBar('g',rgb.g,255); setVal('g',rgb.g,'');
+  setBar('b',rgb.b,255); setVal('b',rgb.b,'');
+  setBar('h',hsv.h,360); setVal('h',hsv.h,'°');
+  setBar('s',hsv.s,100); setVal('s',hsv.s,'%');
+  setBar('v',hsv.v,100); setVal('v',hsv.v,'%');
+}
+function setBar(ch,v,max){ document.getElementById(`bar-${ch}`).style.width=`${(v/max*100).toFixed(1)}%`; }
+function setVal(ch,v,u){ document.getElementById(`val-${ch}`).textContent=v+u; }
+
+function updateCaptured(rgb){
+  document.getElementById('cap-swatch').style.background=`rgb(${rgb.r},${rgb.g},${rgb.b})`;
+  document.getElementById('cap-r').textContent=rgb.r;
+  document.getElementById('cap-g').textContent=rgb.g;
+  document.getElementById('cap-b').textContent=rgb.b;
+}
+
+// ─── 15. 오버레이 ──────────────────────────────────────
+function drawOverlay(vw,vh){
+  octx.clearRect(0,0,overlay.width,overlay.height);
+  if(S.roi)    drawBox(S.roi,'rgba(0,210,255,0.95)',true);
+  if(S.wbArea) drawBox(S.wbArea,'rgba(54,224,122,0.95)',false);
+}
+function drawPhotoOverlay(){
+  octx.clearRect(0,0,overlay.width,overlay.height);
+  if(S.roi)    drawBox(S.roi,'rgba(0,210,255,0.95)',true);
+  if(S.wbArea) drawBox(S.wbArea,'rgba(54,224,122,0.95)',false);
+}
+
+/** 네모칸 박스 그리기 — 화면상 정사각형이 되도록 표시비율 보정 */
+function drawBox(box, color, crosshair){
+  const W=overlay.width, H=overlay.height;
+  // 캔버스의 화면 표시 크기 (CSS 픽셀)
+  const dispW = camWrap.clientWidth || W;
+  const dispH = camWrap.clientHeight || H;
+  // 내부해상도 → 화면 스케일 (가로/세로 다를 수 있음)
+  const scaleX = W / dispW;   // 캔버스 가로픽셀 / 화면 가로
+  const scaleY = H / dispH;   // 캔버스 세로픽셀 / 화면 세로
+
+  // 화면상 한 변 길이(px) = box.size × 화면 가로폭
+  const sideDisp = box.size * dispW;
+  // 캔버스 좌표계로 환산 (가로/세로 각각의 스케일 적용 → 화면상 정사각형)
+  const w = sideDisp * scaleX;
+  const h = sideDisp * scaleY;
+  const cx = box.cx * W;
+  const cy = box.cy * H;
+  let x = cx - w/2, y = cy - h/2;
+  // 경계 보정
+  if(x<0)x=0; if(y<0)y=0;
+  if(x+w>W)x=W-w; if(y+h>H)y=H-h;
+
+  const lw=Math.max(2,W/240);
+  octx.strokeStyle=color; octx.lineWidth=lw;
+  octx.setLineDash([8,4]); octx.strokeRect(x,y,w,h); octx.setLineDash([]);
+
+  // 코너 마커
+  const cs=Math.max(8,Math.min(w,h)*0.3);
+  octx.lineWidth=lw*1.4; octx.beginPath();
+  [[x,y,1,1],[x+w,y,-1,1],[x,y+h,1,-1],[x+w,y+h,-1,-1]].forEach(([mx,my,sx,sy])=>{
+    octx.moveTo(mx,my); octx.lineTo(mx+cs*sx,my);
+    octx.moveTo(mx,my); octx.lineTo(mx,my+cs*sy);
+  });
+  octx.stroke();
+
+  if(crosshair){
+    const ccx=x+w/2, ccy=y+h/2, s=Math.max(6,Math.min(w,h)*0.35);
+    octx.strokeStyle=color.replace('0.95','0.6'); octx.lineWidth=1;
+    octx.beginPath();
+    octx.moveTo(ccx-s,ccy); octx.lineTo(ccx+s,ccy);
+    octx.moveTo(ccx,ccy-s); octx.lineTo(ccx,ccy+s);
+    octx.stroke();
+  }
+}
+
+// ─── 16. FPS ───────────────────────────────────────────
+function calcFPS(){
+  S.fCount++;
+  const now=Date.now();
+  if(now-S.fLast>=1000){ S.fps=S.fCount; S.fCount=0; S.fLast=now;
+    document.getElementById('fps-box').textContent=`${S.fps} FPS`; }
+}
+
+// ─── 17. 화면 캡처 ─────────────────────────────────────
+function captureScreen(){
+  addLog('캡처 생성 중...');
+  html2canvas(document.getElementById('app'),{ backgroundColor:'#050d1a', scale:2, useCORS:true })
+    .then(canvas=>{
+      const link=document.createElement('a');
+      const ts=new Date().toISOString().slice(0,19).replace(/[:T]/g,'-');
+      link.download=`fiber_${ts}.png`;
+      link.href=canvas.toDataURL('image/png');
+      link.click();
+      addLog('캡처 저장 완료 (이미지를 길게 눌러 사진에 추가)');
+    })
+    .catch(e=>{ addLog('캡처 실패: '+e.message); });
+}
+
+// ─── 18. 옵션 모달 ─────────────────────────────────────
+function openOptions(){
+  renderOptPalette();
+  renderOptSamples();
+  document.getElementById('opt-modal').classList.add('show');
+}
+function closeOptions(){ document.getElementById('opt-modal').classList.remove('show'); }
+
+function renderOptPalette(){
+  const wrap=document.getElementById('opt-palette');
+  wrap.innerHTML='';
+  COLOR_KEYS.forEach(key=>{
+    const c=MUNSELL[key];
+    const sw=document.createElement('div');
+    sw.className='pal-swatch'+(key===S.curColor?' sel':'');
+    sw.style.background=rgbCss(c.samples[0]);
+    sw.innerHTML=`<span>${c.name}</span>`;
+    sw.onclick=()=>{ S.curColor=key; buildRefColors(); renderRefList();
+      document.getElementById('opt-sel-name').textContent=c.name;
+      renderOptPalette(); renderOptSamples();
+      if(S.mode==='photo'&&S.photoLoaded) analyzePhoto();
+      addLog(`옵션: ${c.name} 계열 선택`); };
+    wrap.appendChild(sw);
+  });
+  document.getElementById('opt-sel-name').textContent=MUNSELL[S.curColor].name;
+}
+
+function renderOptSamples(){
+  const wrap=document.getElementById('opt-samples');
+  wrap.innerHTML='';
+  S.refColors.forEach((c,i)=>{
+    const row=document.createElement('div');
+    row.className='sample-row';
+    row.innerHTML=`
+      <span class="se-num">${i+1}</span>
+      <span class="se-sw" id="se-sw-${i}" style="background:${rgbCss(c)}"></span>
+      <div class="se-inputs">
+        <div class="se-field"><label class="r">R</label><input type="number" min="0" max="255" value="${c[0]}" data-i="${i}" data-ch="0"></div>
+        <div class="se-field"><label class="g">G</label><input type="number" min="0" max="255" value="${c[1]}" data-i="${i}" data-ch="1"></div>
+        <div class="se-field"><label class="b">B</label><input type="number" min="0" max="255" value="${c[2]}" data-i="${i}" data-ch="2"></div>
+      </div>`;
+    wrap.appendChild(row);
+  });
+  // 입력 이벤트
+  wrap.querySelectorAll('input').forEach(inp=>{
+    inp.oninput=()=>{
+      const i=+inp.dataset.i, ch=+inp.dataset.ch;
+      let v=Math.max(0,Math.min(255,parseInt(inp.value)||0));
+      S.refColors[i][ch]=v;
+      document.getElementById(`se-sw-${i}`).style.background=rgbCss(S.refColors[i]);
+      renderRefList();
+      if(S.mode==='photo'&&S.photoLoaded) analyzePhoto();
+    };
+  });
+}
+
+// ─── 19. 팔레트 모달 (레퍼런스 터치) ───────────────────
+function openPalette(){
+  const wrap=document.getElementById('pal-palette');
+  wrap.innerHTML='';
+  COLOR_KEYS.forEach(key=>{
+    const c=MUNSELL[key];
+    const sw=document.createElement('div');
+    sw.className='pal-swatch'+(key===S.curColor?' sel':'');
+    sw.style.background=rgbCss(c.samples[0]);
+    sw.innerHTML=`<span>${c.name}</span>`;
+    sw.onclick=()=>{ S.curColor=key; buildRefColors(); renderRefList(); closePalette();
+      if(S.mode==='photo'&&S.photoLoaded) analyzePhoto();
+      addLog(`${c.name} 계열로 교체`); };
+    wrap.appendChild(sw);
+  });
+  document.getElementById('pal-modal').classList.add('show');
+}
+function closePalette(){ document.getElementById('pal-modal').classList.remove('show'); }
+
+// 모달 배경 클릭 시 닫기
+document.getElementById('opt-modal').onclick=e=>{ if(e.target.id==='opt-modal') closeOptions(); };
+document.getElementById('pal-modal').onclick=e=>{ if(e.target.id==='pal-modal') closePalette(); };
+document.getElementById('eye-pal-modal').onclick=e=>{ if(e.target.id==='eye-pal-modal') closeEyePalette(); };
+
+// ─── 20. 로그 / 오류 ───────────────────────────────────
+function addLog(msg){
+  const box=document.getElementById('log-box');
+  const t=new Date().toTimeString().slice(0,8);
+  const div=document.createElement('div');
+  div.textContent=`[${t}] ${msg}`;
+  box.appendChild(div);
+  box.scrollTop=box.scrollHeight;
+  while(box.children.length>30) box.removeChild(box.firstChild);
+}
+function showErr(m){ const el=document.getElementById('err-banner'); el.style.display='block'; el.textContent='⚠ '+m; }
+function hideErr(){ document.getElementById('err-banner').style.display='none'; }
+
+// ─── 21. 육안 모드 (전체화면 흑/백 배경 + 색상패널) ────
+function renderEyeRows(){
+  const blackRow=document.getElementById('eye-black-row');
+  const whiteRow=document.getElementById('eye-white-row');
+  blackRow.innerHTML='';
+  whiteRow.innerHTML='';
+  S.refColors.forEach(c=>{
+    const sw1=document.createElement('div');
+    sw1.className='eye-sw';
+    sw1.style.background=rgbCss(c);
+    sw1.onclick=openEyePalette;
+    blackRow.appendChild(sw1);
+    const sw2=document.createElement('div');
+    sw2.className='eye-sw';
+    sw2.style.background=rgbCss(c);
+    sw2.onclick=openEyePalette;
+    whiteRow.appendChild(sw2);
+  });
+}
+
+function openEyeMode(){
+  const eye=document.getElementById('eye-mode');
+  renderEyeRows();
+  eye.classList.add('show');
+  // 전체화면 시도
+  const el=document.documentElement;
+  if(el.requestFullscreen) el.requestFullscreen().catch(()=>{});
+  else if(el.webkitRequestFullscreen) el.webkitRequestFullscreen();
+  addLog('육안 모드 진입');
+}
+function closeEyeMode(){
+  document.getElementById('eye-mode').classList.remove('show');
+  if(document.exitFullscreen) document.exitFullscreen().catch(()=>{});
+  else if(document.webkitExitFullscreen) document.webkitExitFullscreen();
+  addLog('메인화면 복귀');
+}
+
+/** 육안 모드 전용 팔레트 (선택 시 양쪽 패널 동시 교체) */
+function openEyePalette(){
+  const wrap=document.getElementById('eye-pal-grid');
+  wrap.innerHTML='';
+  COLOR_KEYS.forEach(key=>{
+    const c=MUNSELL[key];
+    const sw=document.createElement('div');
+    sw.className='pal-swatch'+(key===S.curColor?' sel':'');
+    sw.style.background=rgbCss(c.samples[0]);
+    sw.innerHTML=`<span>${c.name}</span>`;
+    sw.onclick=()=>{
+      S.curColor=key; buildRefColors(); renderRefList();
+      renderEyeRows();                       // 양쪽 패널 동시 갱신
+      closeEyePalette();
+      if(S.mode==='photo'&&S.photoLoaded) analyzePhoto();
+      addLog(`육안: ${c.name} 계열로 교체`);
+    };
+    wrap.appendChild(sw);
+  });
+  document.getElementById('eye-pal-modal').classList.add('show');
+}
+function closeEyePalette(){ document.getElementById('eye-pal-modal').classList.remove('show'); }
+
+// ─── 22. Service Worker ────────────────────────────────
+if('serviceWorker' in navigator){
+  window.addEventListener('load',()=>navigator.serviceWorker.register('./sw.js').catch(()=>{}));
+}
+
+// ─── 23. 초기화 ────────────────────────────────────────
+window.addEventListener('DOMContentLoaded',()=>{
+  buildRefColors();
+  renderRefList();
+  overlay.width=640; overlay.height=480;
+  addLog('시스템 초기화 완료');
+  addLog('LIVE: START / PHOTO: 사진 불러오기');
+});
+
+</script>
+</body>
+</html>
