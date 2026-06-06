@@ -6,18 +6,18 @@
 // 순서: S1(중심), S2(하한), S3(상한), S4(중간값), S5(하중사이), S6(중상사이)
 // 화면 표시는 1~6번 순서, 중간값 비교는 S4 사용
 const MUNSELL = {
-  blue:   { name:'파랑', samples:[[41,101,172],[20,85,130],[75,125,200],[35,95,155],[31,93,151],[58,113,186]] },
-  orange: { name:'주황', samples:[[242,123,0],[180,100,20],[255,155,75],[215,115,10],[211,112,10],[249,139,38]] },
-  green:  { name:'초록', samples:[[0,139,81],[25,105,45],[85,160,110],[40,125,70],[13,122,63],[43,150,96]] },
-  red:    { name:'빨강', samples:[[191,0,49],[145,20,45],[220,85,95],[170,45,70],[168,10,47],[206,43,72]] },
-  yellow: { name:'노랑', samples:[[255,207,0],[215,185,25],[255,235,100],[240,215,50],[235,196,13],[255,221,50]] },
-  violet: { name:'보라', samples:[[118,78,161],[75,65,125],[155,135,195],[100,95,145],[97,72,143],[137,107,178]] },
+  blue:   { name:'청색', samples:[[41,101,172],[20,85,130],[75,125,200],[35,95,155],[31,93,151],[58,113,186]] },
+  orange: { name:'등색', samples:[[242,123,0],[180,100,20],[255,155,75],[215,115,10],[211,112,10],[249,139,38]] },
+  green:  { name:'녹색', samples:[[0,139,81],[25,105,45],[85,160,110],[40,125,70],[13,122,63],[43,150,96]] },
+  red:    { name:'적색', samples:[[191,0,49],[145,20,45],[220,85,95],[170,45,70],[168,10,47],[206,43,72]] },
+  yellow: { name:'황색', samples:[[255,207,0],[215,185,25],[255,235,100],[240,215,50],[235,196,13],[255,221,50]] },
+  violet: { name:'자색', samples:[[118,78,161],[75,65,125],[155,135,195],[100,95,145],[97,72,143],[137,107,178]] },
   brown:  { name:'갈색', samples:[[98,61,41],[85,55,35],[135,88,70],[115,75,55],[92,58,38],[117,75,56]] },
-  black:  { name:'검정', samples:[[46,46,46],[10,10,10],[52,52,52],[30,30,30],[28,28,28],[49,49,49]] },
-  white:  { name:'흰색', samples:[[227,227,227],[222,222,222],[242,242,242],[235,235,235],[225,225,225],[235,235,235]] },
+  black:  { name:'흑색', samples:[[46,46,46],[10,10,10],[52,52,52],[30,30,30],[28,28,28],[49,49,49]] },
+  white:  { name:'백색', samples:[[227,227,227],[222,222,222],[242,242,242],[235,235,235],[225,225,225],[235,235,235]] },
   grey:   { name:'회색', samples:[[121,121,121],[100,100,100],[165,165,165],[140,140,140],[111,111,111],[143,143,143]] },
-  aqua:   { name:'청록', samples:[[102,189,187],[105,160,160],[185,215,215],[145,195,195],[104,175,174],[144,202,201]] },
-  pink:   { name:'핑크', samples:[[210,150,175],[175,135,155],[240,195,215],[195,165,185],[193,143,165],[225,173,195]] },
+  aqua:   { name:'연청', samples:[[102,189,187],[105,160,160],[185,215,215],[145,195,195],[104,175,174],[144,202,201]] },
+  pink:   { name:'연등', samples:[[210,150,175],[175,135,155],[240,195,215],[195,165,185],[193,143,165],[225,173,195]] },
 };
 const COLOR_KEYS = Object.keys(MUNSELL);
 
@@ -31,19 +31,26 @@ const CFG = { INTERVAL: 100, STEP: 4 };
 const S = {
   mode: 'live',           // 'live' | 'photo'
   running: false,
-  tool: null,             // null | 'roi' | 'wb'
-  roi: null,              // {x,y,w,h} 0~1
-  wbArea: null,
+  tool: null,             // null | 'roi' | 'wb'  (현재 이동중인 박스)
+  // 측정영역/보정영역: 중심좌표(cx,cy)+크기(size) 0~1 정규화 네모칸
+  roi:    null,           // {cx,cy,size}
+  wbArea: null,           // {cx,cy,size}
   wbGain: null,           // {r,g,b} 보정 계수
-  drag: null,
+  dragOffset: null,       // 박스 이동용 오프셋
   timer: null,
   stream: null,
-  curColor: 'blue',       // 현재 레퍼런스 색상 계열
-  refColors: [],          // 현재 표시중인 6개 [r,g,b]
+  curColor: 'blue',
+  refColors: [],
   lastRGB: { r:0, g:0, b:0 },
   fps: 0, fCount: 0, fLast: Date.now(),
   photoLoaded: false,
+  // 사진 줌/패닝
+  photoZoom: 1, photoX: 0, photoY: 0,
+  pinchDist: 0,
 };
+
+// 네모칸 기본/최소/최대 크기 (정규화 비율)
+const BOX = { DEFAULT: 0.18, MIN: 0.05, MAX: 0.8, STEP: 0.04 };
 
 // ─── 4. DOM ────────────────────────────────────────────
 const video   = document.getElementById('video');
@@ -140,26 +147,27 @@ function updateMatch(rgb) {
   rateEl.textContent = `· ${MUNSELL[S.curColor].name} ${best+1}번과 ${rate}% 일치`;
   rateEl.style.color = rate>=85 ? 'var(--live)' : rate>=60 ? '#ffc04a' : 'var(--stop)';
 
-  // 코멘트 생성 (중간값 S4 = DISPLAY_ORDER에서 3번째 = index 2 표시번호 3)
-  const mid = MUNSELL[S.curColor].samples[3]; // S4 중간값
-  generateComment(rgb, mid, best, rate);
+  // 코멘트 생성 (가장 유사한 레퍼런스 색상 기준 비교)
+  const ref = S.refColors[best]; // 가장 유사한 색상
+  generateComment(rgb, ref, best, rate);
 }
 
-/** 한글 코멘트 생성 */
-function generateComment(rgb, mid, bestIdx, rate) {
+/** 한글 코멘트 생성 — 가장 유사한 레퍼런스(ref) 기준 비교 */
+function generateComment(rgb, ref, bestIdx, rate) {
   const cur = rgbToHsv(rgb.r, rgb.g, rgb.b);
-  const midHsv = rgbToHsv(mid[0], mid[1], mid[2]);
+  const refHsv = rgbToHsv(ref[0], ref[1], ref[2]);
 
-  const dV = cur.v - midHsv.v;       // 명도 차
-  const dS = cur.s - midHsv.s;       // 채도 차
-  const dH = cur.h - midHsv.h;       // 색조 차
+  const dV = cur.v - refHsv.v;       // 명도 차
+  const dS = cur.s - refHsv.s;       // 채도 차
+  const dH = cur.h - refHsv.h;       // 색조 차
 
-  let parts = [];
+  const num = bestIdx + 1;
 
   // 밝기
-  if(Math.abs(dV) <= 3) parts.push('밝기는 중간값과 거의 동일');
-  else if(dV > 0) parts.push(`중간값보다 ${Math.abs(dV)}% 밝`);
-  else parts.push(`중간값보다 ${Math.abs(dV)}% 어둡`);
+  let brightWord;
+  if(Math.abs(dV) <= 3) brightWord = `${num}번과 밝기가 거의 동일하고 `;
+  else if(dV > 0) brightWord = `${num}번보다 밝기가 ${Math.abs(dV)}% 밝고 `;
+  else brightWord = `${num}번보다 밝기가 ${Math.abs(dV)}% 어둡고 `;
 
   // 채도(농도)
   let satTxt;
@@ -175,11 +183,10 @@ function generateComment(rgb, mid, bestIdx, rate) {
   }
 
   let prefix;
-  if(rate >= 85) prefix = `✅ ${MUNSELL[S.curColor].name} ${bestIdx+1}번과 매우 유사합니다. `;
-  else if(rate >= 60) prefix = `⚠️ ${MUNSELL[S.curColor].name} ${bestIdx+1}번과 가장 유사하나 차이가 있습니다. `;
-  else prefix = `❌ 레퍼런스와 차이가 큽니다. `;
+  if(rate >= 85) prefix = `✅ ${MUNSELL[S.curColor].name} ${num}번과 매우 유사합니다. `;
+  else if(rate >= 60) prefix = `⚠️ ${MUNSELL[S.curColor].name} ${num}번과 가장 유사하나 차이가 있습니다. `;
+  else prefix = `❌ 레퍼런스와 차이가 큽니다. 가장 가까운 색은 ${num}번입니다. `;
 
-  const brightWord = (Math.abs(dV)<=3) ? parts[0] + '하고 ' : parts[0] + '고 ';
   document.getElementById('comment-text').textContent =
     prefix + brightWord + satTxt + '.' + hueTxt;
 }
@@ -207,7 +214,7 @@ function setMode(m){
 
   // 모드 바뀌면 정리
   if(m==='photo'){ if(S.running) stopCamera(); video.style.display='none'; }
-  else { photoImg.style.display='none'; S.photoLoaded=false; clearInterval(S.timer); }
+  else { photoImg.style.display='none'; S.photoLoaded=false; clearInterval(S.timer); resetPhotoZoom(); }
   resetAreas();
   document.getElementById('placeholder').style.display='flex';
   document.getElementById('ph-text').textContent = m==='live'?'START를 눌러 시작하세요':'사진을 불러오세요';
@@ -272,37 +279,91 @@ function loadPhoto(e){
     photoImg.style.display='block';
     document.getElementById('placeholder').style.display='none';
     S.photoLoaded=true;
-    document.getElementById('btn-proi').disabled=false;
-    document.getElementById('btn-preset').disabled=false;
-    document.getElementById('btn-pcap').disabled=false;
+    resetPhotoZoom();
+    // 포토 모드 버튼 활성화 (측정영역/보정영역/초기화/캡처)
+    ['btn-proi','btn-pwb','btn-preset','btn-pcap'].forEach(id=>{
+      const el=document.getElementById(id); if(el) el.disabled=false;
+    });
     analyzePhoto();
-    addLog('사진 불러옴');
+    addLog('사진 불러옴 (두 손가락 확대 가능)');
   };
   photoImg.src=url;
 }
 
-// ─── 11. 측정영역 / 보정영역 도구 ──────────────────────
+// ─── 11. 측정영역 / 보정영역 (네모칸 방식) ─────────────
+
+/** 도구 선택: 박스 생성/토글. 이미 있으면 이동 모드 활성화 */
 function setTool(t){
-  S.tool = (S.tool===t)?null:t;
-  // 버튼 하이라이트
+  if(S.mode==='live'&&!S.running) return;
+  if(S.mode==='photo'&&!S.photoLoaded) return;
+
+  // 같은 도구 다시 누르면 끔
+  if(S.tool===t){ S.tool=null; updateToolUI(); redrawOverlay(); return; }
+
+  S.tool=t;
+  // 해당 박스가 없으면 화면 중앙에 기본 크기로 생성
+  if(t==='roi' && !S.roi)    S.roi    = { cx:0.5, cy:0.5, size:BOX.DEFAULT };
+  if(t==='wb'  && !S.wbArea) S.wbArea = { cx:0.5, cy:0.5, size:BOX.DEFAULT };
+
+  updateToolUI();
+  reanalyze();
+}
+
+function updateToolUI(){
   ['btn-roi','btn-proi'].forEach(id=>document.getElementById(id)?.classList.toggle('on',S.tool==='roi'));
-  document.getElementById('btn-wb')?.classList.toggle('on-wb',S.tool==='wb');
+  ['btn-wb','btn-pwb'].forEach(id=>document.getElementById(id)?.classList.toggle('on-wb',S.tool==='wb'));
+  // 박스 크기조절 컨트롤 표시
+  const ctrl=document.getElementById('box-controls');
+  const label=document.getElementById('bc-label');
+  const confirm=document.getElementById('bc-confirm');
+  if(ctrl){
+    ctrl.style.display = S.tool ? 'flex' : 'none';
+    if(S.tool==='roi'){ label.textContent='측정영역 크기'; confirm.style.display='none'; }
+    else if(S.tool==='wb'){ label.textContent='보정영역 크기'; confirm.style.display='block'; }
+  }
   const hint=document.getElementById('cam-hint');
-  if(S.tool==='roi'){ hint.textContent='드래그 → 측정영역 설정'; hint.className='cam-hint'; hint.style.display='block'; }
-  else if(S.tool==='wb'){ hint.textContent='흰 종이 영역 드래그 → 자동 보정'; hint.className='cam-hint wb'; hint.style.display='block'; }
+  if(S.tool==='roi'){ hint.textContent='네모칸을 드래그해 이동 · +/- 로 크기조절'; hint.className='cam-hint'; hint.style.display='block'; }
+  else if(S.tool==='wb'){ hint.textContent='흰 종이 위에 네모칸 놓고 ✓ 보정 적용'; hint.className='cam-hint wb'; hint.style.display='block'; }
   else hint.style.display='none';
+}
+
+/** + / - 버튼: 현재 도구 박스 크기 조절 */
+function resizeBox(dir){
+  const box = S.tool==='roi' ? S.roi : S.tool==='wb' ? S.wbArea : null;
+  if(!box) return;
+  box.size = Math.max(BOX.MIN, Math.min(BOX.MAX, box.size + dir*BOX.STEP));
+  reanalyze();
+}
+
+/** 보정영역 확정 버튼 (WB 적용) */
+function confirmWB(){
+  if(!S.wbArea) return;
+  applyWhiteBalance();
+  S.tool=null;
+  updateToolUI();
+  reanalyze();
 }
 
 function resetAreas(){
   S.roi=null; S.wbArea=null; S.wbGain=null; S.tool=null;
-  ['btn-roi','btn-proi'].forEach(id=>document.getElementById(id)?.classList.remove('on'));
-  document.getElementById('btn-wb')?.classList.remove('on-wb');
-  document.getElementById('cam-hint').style.display='none';
-  if(S.mode==='photo'&&S.photoLoaded) analyzePhoto();
+  updateToolUI();
+  reanalyze();
   addLog('측정영역 + 보정 초기화');
 }
 
-// 드래그 좌표
+/** 분석+오버레이 갱신 (모드 공통) */
+function reanalyze(){
+  if(S.mode==='photo'&&S.photoLoaded) analyzePhoto();
+  else if(S.mode==='live'&&S.running) { /* 다음 프레임에 자동 */ redrawOverlay(); }
+  else redrawOverlay();
+}
+
+function redrawOverlay(){
+  if(S.mode==='photo') drawPhotoOverlay();
+  else drawOverlay(video.videoWidth||overlay.width, video.videoHeight||overlay.height);
+}
+
+// ─── 드래그 이동 (네모칸 위치 이동) ────────────────────
 function relPos(e){
   const rect=camWrap.getBoundingClientRect();
   const src=e.touches?e.touches[0]:e;
@@ -315,33 +376,78 @@ function relPos(e){
 ['mousemove','touchmove'].forEach(ev=>camWrap.addEventListener(ev,onMove,{passive:false}));
 ['mouseup','touchend'].forEach(ev=>camWrap.addEventListener(ev,onUp,{passive:false}));
 
+function activeBox(){ return S.tool==='roi' ? S.roi : S.tool==='wb' ? S.wbArea : null; }
+
 function onDown(e){
-  if(!S.tool) return;
-  if(S.mode==='live'&&!S.running) return;
-  if(S.mode==='photo'&&!S.photoLoaded) return;
+  // 사진 모드 핀치줌 (손가락 2개)
+  if(S.mode==='photo' && e.touches && e.touches.length===2){
+    S.pinchDist = touchDist(e.touches);
+    return;
+  }
+  const box=activeBox();
+  if(!box) return;
   e.preventDefault();
-  S.drag=relPos(e);
+  const p=relPos(e);
+  // 박스 중심 기준 오프셋 저장 → 박스 어디를 잡아도 자연스럽게 이동
+  S.dragOffset = { dx: p.x - box.cx, dy: p.y - box.cy };
 }
+
 function onMove(e){
-  if(!S.drag) return;
+  // 사진 핀치줌
+  if(S.mode==='photo' && e.touches && e.touches.length===2 && S.pinchDist){
+    e.preventDefault();
+    const d=touchDist(e.touches);
+    const ratio=d/S.pinchDist;
+    S.photoZoom = Math.max(1, Math.min(5, S.photoZoom*ratio));
+    S.pinchDist=d;
+    applyPhotoTransform();
+    return;
+  }
+  const box=activeBox();
+  if(!box || !S.dragOffset) return;
   e.preventDefault();
-  const cur=relPos(e);
-  const rect={ x:Math.min(S.drag.x,cur.x),y:Math.min(S.drag.y,cur.y),
-               w:Math.abs(cur.x-S.drag.x),h:Math.abs(cur.y-S.drag.y) };
-  if(S.tool==='roi') S.roi=rect; else if(S.tool==='wb') S.wbArea=rect;
-  if(S.mode==='photo') { drawPhotoOverlay(); }
+  const p=relPos(e);
+  box.cx = Math.max(0, Math.min(1, p.x - S.dragOffset.dx));
+  box.cy = Math.max(0, Math.min(1, p.y - S.dragOffset.dy));
+  reanalyze();
 }
+
 function onUp(e){
-  if(!S.drag) return;
-  S.drag=null;
-  if(S.tool==='wb'&&S.wbArea&&S.wbArea.w>0.02){
-    applyWhiteBalance();
+  S.pinchDist=0;
+  if(!S.dragOffset) return;
+  S.dragOffset=null;
+  reanalyze();
+}
+
+function touchDist(t){
+  const dx=t[0].clientX-t[1].clientX, dy=t[0].clientY-t[1].clientY;
+  return Math.sqrt(dx*dx+dy*dy);
+}
+
+// ─── 더블탭 줌 (사진 모드) ─────────────────────────────
+let lastTap=0;
+camWrap.addEventListener('touchend',e=>{
+  if(S.mode!=='photo'||!S.photoLoaded) return;
+  if(S.tool) return; // 영역 이동중이면 무시
+  const now=Date.now();
+  if(now-lastTap<300){
+    // 더블탭: 1배 ↔ 2.5배 토글
+    S.photoZoom = S.photoZoom>1 ? 1 : 2.5;
+    if(S.photoZoom===1){ S.photoX=0; S.photoY=0; }
+    applyPhotoTransform();
   }
-  // 측정영역 완료시 도구 해제
-  if(S.tool==='roi'&&S.roi&&S.roi.w>0.02){
-    setTool('roi'); // 토글로 끔
-  }
-  if(S.mode==='photo'&&S.photoLoaded) analyzePhoto();
+  lastTap=now;
+});
+
+/** 네모칸(cx,cy,size) → 픽셀 사각형 {x,y,w,h} */
+function boxToPixelRect(box, vw, vh){
+  const half=box.size/2;
+  let x=(box.cx-half)*vw, y=(box.cy-half)*vh;
+  let w=box.size*vw, h=box.size*vh;
+  // 경계 보정
+  x=Math.max(0,Math.min(vw-1,x)); y=Math.max(0,Math.min(vh-1,y));
+  w=Math.max(1,Math.min(vw-x,w)); h=Math.max(1,Math.min(vh-y,h));
+  return { x:Math.floor(x), y:Math.floor(y), w:Math.floor(w), h:Math.floor(h) };
 }
 
 // ─── 12. 화이트밸런스 자동 적용 ────────────────────────
@@ -349,22 +455,24 @@ function applyWhiteBalance(){
   const src = S.mode==='live' ? video : photoImg;
   const vw=aCanvas.width, vh=aCanvas.height;
   actx.drawImage(src,0,0,vw,vh);
-  const a=S.wbArea;
-  const x=Math.floor(a.x*vw), y=Math.floor(a.y*vh);
-  const w=Math.max(1,Math.floor(a.w*vw)), h=Math.max(1,Math.floor(a.h*vh));
-  const data=actx.getImageData(x,y,w,h).data;
+  const rect=boxToPixelRect(S.wbArea,vw,vh);
+  const data=actx.getImageData(rect.x,rect.y,rect.w,rect.h).data;
   let r=0,g=0,b=0,n=0;
   const step=CFG.STEP*4;
   for(let i=0;i<data.length;i+=step){ r+=data[i]; g+=data[i+1]; b+=data[i+2]; n++; }
   r/=n; g/=n; b/=n;
-  // 흰색 기준 보정: 평균을 흰색(공통 최대)으로 맞춤
   const target=Math.max(r,g,b);
   S.wbGain={ r:target/r, g:target/g, b:target/b };
-  S.tool=null;
-  document.getElementById('btn-wb')?.classList.remove('on-wb');
   document.getElementById('cam-hint').style.display='none';
   addLog(`WB 보정 적용 (gain R${S.wbGain.r.toFixed(2)} G${S.wbGain.g.toFixed(2)} B${S.wbGain.b.toFixed(2)})`);
 }
+
+// ─── 사진 줌/이동 transform 적용 ───────────────────────
+function applyPhotoTransform(){
+  photoImg.style.transform = `scale(${S.photoZoom}) translate(${S.photoX}px,${S.photoY}px)`;
+  if(S.photoLoaded) analyzePhoto();
+}
+function resetPhotoZoom(){ S.photoZoom=1; S.photoX=0; S.photoY=0; applyPhotoTransform(); }
 
 // ─── 13. 분석 (LIVE) ───────────────────────────────────
 function analyzeLive(){
@@ -387,10 +495,8 @@ function analyzePhoto(){
 
 /** 공통 분석 처리 */
 function doAnalysis(vw,vh){
-  const roi=S.roi
-    ?{x:Math.floor(S.roi.x*vw),y:Math.floor(S.roi.y*vh),w:Math.max(1,Math.floor(S.roi.w*vw)),h:Math.max(1,Math.floor(S.roi.h*vh))}
-    :{x:0,y:0,w:vw,h:vh};
-  const data=actx.getImageData(roi.x,roi.y,roi.w,roi.h).data;
+  const rect = S.roi ? boxToPixelRect(S.roi,vw,vh) : {x:0,y:0,w:vw,h:vh};
+  const data=actx.getImageData(rect.x,rect.y,rect.w,rect.h).data;
   const rgb=avgRGB(data);
   S.lastRGB=rgb;
   const hsv=rgbToHsv(rgb.r,rgb.g,rgb.b);
@@ -421,26 +527,41 @@ function updateCaptured(rgb){
 // ─── 15. 오버레이 ──────────────────────────────────────
 function drawOverlay(vw,vh){
   octx.clearRect(0,0,overlay.width,overlay.height);
-  drawArea(S.roi,'rgba(0,210,255,0.9)',vw,vh,true);
-  drawArea(S.wbArea,'rgba(54,224,122,0.9)',vw,vh,false);
+  if(S.roi)    drawBox(S.roi,'rgba(0,210,255,0.95)',true);
+  if(S.wbArea) drawBox(S.wbArea,'rgba(54,224,122,0.95)',false);
 }
 function drawPhotoOverlay(){
   octx.clearRect(0,0,overlay.width,overlay.height);
-  drawArea(S.roi,'rgba(0,210,255,0.9)',overlay.width,overlay.height,true);
-  drawArea(S.wbArea,'rgba(54,224,122,0.9)',overlay.width,overlay.height,false);
+  if(S.roi)    drawBox(S.roi,'rgba(0,210,255,0.95)',true);
+  if(S.wbArea) drawBox(S.wbArea,'rgba(54,224,122,0.95)',false);
 }
-function drawArea(area,color,vw,vh,crosshair){
-  if(!area) return;
-  const sx=overlay.width/vw, sy=overlay.height/vh;
-  const x=area.x*vw*sx, y=area.y*vh*sy, w=area.w*vw*sx, h=area.h*vh*sy;
-  octx.strokeStyle=color; octx.lineWidth=Math.max(2,overlay.width/320);
+
+/** 네모칸 박스 그리기 (overlay 캔버스 좌표계 기준) */
+function drawBox(box, color, crosshair){
+  const W=overlay.width, H=overlay.height;
+  const half=box.size/2;
+  const x=(box.cx-half)*W, y=(box.cy-half)*H;
+  const w=box.size*W, h=box.size*H;
+  const lw=Math.max(2,W/240);
+
+  octx.strokeStyle=color; octx.lineWidth=lw;
   octx.setLineDash([8,4]); octx.strokeRect(x,y,w,h); octx.setLineDash([]);
+
+  // 코너 마커
+  const cs=Math.max(8,W/30);
+  octx.lineWidth=lw*1.4; octx.beginPath();
+  [[x,y,1,1],[x+w,y,-1,1],[x,y+h,1,-1],[x+w,y+h,-1,-1]].forEach(([cx,cy,sx,sy])=>{
+    octx.moveTo(cx,cy); octx.lineTo(cx+cs*sx,cy);
+    octx.moveTo(cx,cy); octx.lineTo(cx,cy+cs*sy);
+  });
+  octx.stroke();
+
   if(crosshair){
-    const cx=x+w/2, cy=y+h/2, s=overlay.width/40;
-    octx.strokeStyle=color.replace('0.9','0.5'); octx.lineWidth=1;
+    const ccx=x+w/2, ccy=y+h/2, s=Math.max(6,W/45);
+    octx.strokeStyle=color.replace('0.95','0.6'); octx.lineWidth=1;
     octx.beginPath();
-    octx.moveTo(cx-s,cy); octx.lineTo(cx+s,cy);
-    octx.moveTo(cx,cy-s); octx.lineTo(cx,cy+s);
+    octx.moveTo(ccx-s,ccy); octx.lineTo(ccx+s,ccy);
+    octx.moveTo(ccx,ccy-s); octx.lineTo(ccx,ccy+s);
     octx.stroke();
   }
 }
@@ -546,6 +667,7 @@ function closePalette(){ document.getElementById('pal-modal').classList.remove('
 // 모달 배경 클릭 시 닫기
 document.getElementById('opt-modal').onclick=e=>{ if(e.target.id==='opt-modal') closeOptions(); };
 document.getElementById('pal-modal').onclick=e=>{ if(e.target.id==='pal-modal') closePalette(); };
+document.getElementById('eye-pal-modal').onclick=e=>{ if(e.target.id==='eye-pal-modal') closeEyePalette(); };
 
 // ─── 20. 로그 / 오류 ───────────────────────────────────
 function addLog(msg){
@@ -560,7 +682,67 @@ function addLog(msg){
 function showErr(m){ const el=document.getElementById('err-banner'); el.style.display='block'; el.textContent='⚠ '+m; }
 function hideErr(){ document.getElementById('err-banner').style.display='none'; }
 
-// ─── 21. Service Worker ────────────────────────────────
+// ─── 22. 육안 모드 (전체화면 흑/백 배경 + 색상패널) ────
+function renderEyeRows(){
+  const blackRow=document.getElementById('eye-black-row');
+  const whiteRow=document.getElementById('eye-white-row');
+  blackRow.innerHTML='';
+  whiteRow.innerHTML='';
+  S.refColors.forEach(c=>{
+    const sw1=document.createElement('div');
+    sw1.className='eye-sw';
+    sw1.style.background=rgbCss(c);
+    sw1.onclick=openEyePalette;
+    blackRow.appendChild(sw1);
+    const sw2=document.createElement('div');
+    sw2.className='eye-sw';
+    sw2.style.background=rgbCss(c);
+    sw2.onclick=openEyePalette;
+    whiteRow.appendChild(sw2);
+  });
+}
+
+function openEyeMode(){
+  const eye=document.getElementById('eye-mode');
+  renderEyeRows();
+  eye.classList.add('show');
+  // 전체화면 시도
+  const el=document.documentElement;
+  if(el.requestFullscreen) el.requestFullscreen().catch(()=>{});
+  else if(el.webkitRequestFullscreen) el.webkitRequestFullscreen();
+  addLog('육안 모드 진입');
+}
+function closeEyeMode(){
+  document.getElementById('eye-mode').classList.remove('show');
+  if(document.exitFullscreen) document.exitFullscreen().catch(()=>{});
+  else if(document.webkitExitFullscreen) document.webkitExitFullscreen();
+  addLog('메인화면 복귀');
+}
+
+/** 육안 모드 전용 팔레트 (선택 시 양쪽 패널 동시 교체) */
+function openEyePalette(){
+  const wrap=document.getElementById('eye-pal-grid');
+  wrap.innerHTML='';
+  COLOR_KEYS.forEach(key=>{
+    const c=MUNSELL[key];
+    const sw=document.createElement('div');
+    sw.className='pal-swatch'+(key===S.curColor?' sel':'');
+    sw.style.background=rgbCss(c.samples[0]);
+    sw.innerHTML=`<span>${c.name}</span>`;
+    sw.onclick=()=>{
+      S.curColor=key; buildRefColors(); renderRefList();
+      renderEyeRows();                       // 양쪽 패널 동시 갱신
+      closeEyePalette();
+      if(S.mode==='photo'&&S.photoLoaded) analyzePhoto();
+      addLog(`육안: ${c.name} 계열로 교체`);
+    };
+    wrap.appendChild(sw);
+  });
+  document.getElementById('eye-pal-modal').classList.add('show');
+}
+function closeEyePalette(){ document.getElementById('eye-pal-modal').classList.remove('show'); }
+
+// ─── 23. Service Worker ────────────────────────────────
 if('serviceWorker' in navigator){
   window.addEventListener('load',()=>navigator.serviceWorker.register('./sw.js').catch(()=>{}));
 }

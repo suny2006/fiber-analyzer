@@ -288,6 +288,54 @@
     }
 
     .hidden-file { display:none; }
+
+    /* ─── 박스 크기조절 컨트롤 ─── */
+    .box-controls {
+      display:none; align-items:center; gap:8px;
+      padding:8px 12px; border-top:1px solid var(--border);
+    }
+    .bc-label { font-size:10px; color:var(--dim); letter-spacing:0.05em; margin-right:auto; }
+    .bc-btn {
+      min-width:42px; height:32px; border:1px solid var(--border-br); border-radius:7px;
+      background:var(--panel2); color:var(--accent); font-size:18px; font-weight:bold;
+      cursor:pointer; display:flex; align-items:center; justify-content:center;
+    }
+    .bc-btn:active { transform:scale(.92); }
+    .bc-btn.confirm { font-size:11px; min-width:auto; padding:0 12px; color:var(--live); border-color:rgba(54,224,122,0.5); }
+
+    /* ─── 포토 줌 ─── */
+    #photo-img { transform-origin:center center; transition:transform .05s linear; }
+
+    .opt-btn.eye { font-size:11px; width:auto; padding:0 10px; letter-spacing:0.05em; white-space:nowrap; }
+
+    /* ─── 육안 모드 (전체화면 흑/백) ─── */
+    #eye-mode {
+      position:fixed; inset:0; z-index:100; display:none;
+      flex-direction:column;
+    }
+    #eye-mode.show { display:flex; }
+    .eye-half { flex:1; display:flex; align-items:center; justify-content:center; }
+    .eye-black { background:#000; }
+    .eye-white { background:#fff; }
+    .eye-row {
+      display:flex; gap:0; width:100%; height:32%;
+      padding:0 4%;
+    }
+    .eye-sw { flex:1; height:100%; cursor:pointer; }
+    .eye-hint {
+      position:fixed; top:calc(var(--safe-top) + 14px); left:12px; z-index:101;
+      font-size:10px; font-family:var(--mono); color:rgba(255,255,255,0.55);
+      letter-spacing:0.03em; max-width:55%; line-height:1.4;
+    }
+    /* 육안 팔레트는 육안모드(z100) 위에 떠야 함 */
+    #eye-pal-modal { z-index:120; }
+    .eye-back {
+      position:fixed; top:calc(var(--safe-top) + 10px); right:12px; z-index:101;
+      padding:8px 12px; font-size:11px; font-family:var(--mono); letter-spacing:0.05em;
+      background:rgba(40,40,40,0.85); color:#fff; border:1px solid rgba(255,255,255,0.3);
+      border-radius:8px; cursor:pointer;
+    }
+    .eye-back:active { transform:scale(.94); }
   </style>
 </head>
 <body>
@@ -305,6 +353,7 @@
         <span id="live-txt">STANDBY</span>
       </div>
       <div id="fps-box">0 FPS</div>
+      <button class="opt-btn eye" onclick="openEyeMode()" title="육안 모드">육안모드</button>
       <button class="opt-btn" onclick="openOptions()">⚙</button>
     </div>
   </header>
@@ -330,6 +379,14 @@
       <div class="cam-hint" id="cam-hint"></div>
     </div>
 
+    <!-- 박스 크기조절 컨트롤 (도구 활성 시 표시) -->
+    <div class="box-controls" id="box-controls">
+      <span class="bc-label" id="bc-label">측정영역 크기</span>
+      <button class="bc-btn" onclick="resizeBox(-1)">−</button>
+      <button class="bc-btn" onclick="resizeBox(1)">＋</button>
+      <button class="bc-btn confirm" id="bc-confirm" onclick="confirmWB()" style="display:none">✓ 보정 적용</button>
+    </div>
+
     <!-- LIVE 모드 버튼 -->
     <div class="btn-grid" id="live-controls">
       <button class="btn start" id="btn-start" onclick="startCamera()">▶ START</button>
@@ -344,6 +401,7 @@
     <div class="photo-controls" id="photo-controls">
       <button class="btn" onclick="document.getElementById('file-input').click()">📷 사진 불러오기</button>
       <button class="btn" id="btn-proi" onclick="setTool('roi')" disabled>측정영역</button>
+      <button class="btn" id="btn-pwb" onclick="setTool('wb')" disabled>보정영역</button>
       <button class="btn" id="btn-preset" onclick="resetAreas()" disabled>초기화</button>
       <button class="btn cap" id="btn-pcap" onclick="captureScreen()" disabled>캡처</button>
     </div>
@@ -425,6 +483,32 @@
     <div class="modal-body">
       <div class="modal-section-label">선택한 색상의 6단계 먼셀 색상으로 교체됩니다</div>
       <div class="palette-grid" id="pal-palette"></div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══ 육안 모드 (전체화면) ═══ -->
+<div id="eye-mode">
+  <button class="eye-back" onclick="closeEyeMode()">✕ 메인화면</button>
+  <div class="eye-hint">색상 패널을 터치하면 다른 계열로 바꿀 수 있어요</div>
+  <div class="eye-half eye-black">
+    <div class="eye-row" id="eye-black-row"></div>
+  </div>
+  <div class="eye-half eye-white">
+    <div class="eye-row" id="eye-white-row"></div>
+  </div>
+</div>
+
+<!-- 육안 모드 전용 팔레트 모달 -->
+<div class="modal-bg" id="eye-pal-modal">
+  <div class="modal">
+    <div class="modal-head">
+      <span class="modal-title">🎨 색상 계열 선택</span>
+      <button class="modal-close" onclick="closeEyePalette()">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="modal-section-label">선택하면 위·아래 패널이 동시에 바뀝니다</div>
+      <div class="palette-grid" id="eye-pal-grid"></div>
     </div>
   </div>
 </div>
