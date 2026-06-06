@@ -49,8 +49,9 @@ const S = {
   pinchDist: 0,
 };
 
-// 네모칸 기본/최소/최대 크기 (정규화 비율)
-const BOX = { DEFAULT: 0.18, MIN: 0.05, MAX: 0.8, STEP: 0.04 };
+// 네모칸 크기 (size = 가로폭 기준 비율, 항상 정사각형)
+// MIN 0.02 ≈ 1280px 영상에서 한 변 약 26px
+const BOX = { DEFAULT: 0.15, MIN: 0.02, MAX: 0.5, STEP: 0.015 };
 
 // ─── 4. DOM ────────────────────────────────────────────
 const video   = document.getElementById('video');
@@ -398,7 +399,7 @@ function onMove(e){
     e.preventDefault();
     const d=touchDist(e.touches);
     const ratio=d/S.pinchDist;
-    S.photoZoom = Math.max(1, Math.min(5, S.photoZoom*ratio));
+    S.photoZoom = Math.max(1, Math.min(15, S.photoZoom*ratio));
     S.pinchDist=d;
     applyPhotoTransform();
     return;
@@ -432,20 +433,23 @@ camWrap.addEventListener('touchend',e=>{
   const now=Date.now();
   if(now-lastTap<300){
     // 더블탭: 1배 ↔ 2.5배 토글
-    S.photoZoom = S.photoZoom>1 ? 1 : 2.5;
+    S.photoZoom = S.photoZoom>1 ? 1 : 5;
     if(S.photoZoom===1){ S.photoX=0; S.photoY=0; }
     applyPhotoTransform();
   }
   lastTap=now;
 });
 
-/** 네모칸(cx,cy,size) → 픽셀 사각형 {x,y,w,h} */
+/** 네모칸(cx,cy,size) → 픽셀 정사각형 {x,y,w,h} (가로폭 기준 한 변) */
 function boxToPixelRect(box, vw, vh){
-  const half=box.size/2;
-  let x=(box.cx-half)*vw, y=(box.cy-half)*vh;
-  let w=box.size*vw, h=box.size*vh;
-  // 경계 보정
-  x=Math.max(0,Math.min(vw-1,x)); y=Math.max(0,Math.min(vh-1,y));
+  const side = box.size * vw;          // 한 변 길이 (가로 기준) → 정사각형
+  let x=(box.cx*vw) - side/2;
+  let y=(box.cy*vh) - side/2;
+  let w=side, h=side;
+  // 경계 보정 (정사각형 유지)
+  if(x<0) x=0; if(y<0) y=0;
+  if(x+w>vw) x=vw-w; if(y+h>vh) y=vh-h;
+  x=Math.max(0,x); y=Math.max(0,y);
   w=Math.max(1,Math.min(vw-x,w)); h=Math.max(1,Math.min(vh-y,h));
   return { x:Math.floor(x), y:Math.floor(y), w:Math.floor(w), h:Math.floor(h) };
 }
@@ -536,19 +540,19 @@ function drawPhotoOverlay(){
   if(S.wbArea) drawBox(S.wbArea,'rgba(54,224,122,0.95)',false);
 }
 
-/** 네모칸 박스 그리기 (overlay 캔버스 좌표계 기준) */
+/** 네모칸 박스 그리기 (overlay 캔버스 좌표계 기준, 정사각형) */
 function drawBox(box, color, crosshair){
   const W=overlay.width, H=overlay.height;
-  const half=box.size/2;
-  const x=(box.cx-half)*W, y=(box.cy-half)*H;
-  const w=box.size*W, h=box.size*H;
+  // 분석과 동일한 정사각형 영역 사용 → 화면-분석 완전 일치
+  const r=boxToPixelRect(box, W, H);
+  const x=r.x, y=r.y, w=r.w, h=r.h;
   const lw=Math.max(2,W/240);
 
   octx.strokeStyle=color; octx.lineWidth=lw;
   octx.setLineDash([8,4]); octx.strokeRect(x,y,w,h); octx.setLineDash([]);
 
   // 코너 마커
-  const cs=Math.max(8,W/30);
+  const cs=Math.max(8,Math.min(w,h)*0.3);
   octx.lineWidth=lw*1.4; octx.beginPath();
   [[x,y,1,1],[x+w,y,-1,1],[x,y+h,1,-1],[x+w,y+h,-1,-1]].forEach(([cx,cy,sx,sy])=>{
     octx.moveTo(cx,cy); octx.lineTo(cx+cs*sx,cy);
@@ -557,7 +561,7 @@ function drawBox(box, color, crosshair){
   octx.stroke();
 
   if(crosshair){
-    const ccx=x+w/2, ccy=y+h/2, s=Math.max(6,W/45);
+    const ccx=x+w/2, ccy=y+h/2, s=Math.max(6,Math.min(w,h)*0.35);
     octx.strokeStyle=color.replace('0.95','0.6'); octx.lineWidth=1;
     octx.beginPath();
     octx.moveTo(ccx-s,ccy); octx.lineTo(ccx+s,ccy);
